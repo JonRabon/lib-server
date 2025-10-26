@@ -3,6 +3,7 @@ package com.coderepojon.dbPostgres.config;
 import com.coderepojon.dbPostgres.security.JwtAuthenticationFilter;
 import com.coderepojon.dbPostgres.security.JwtUtil;
 import com.coderepojon.dbPostgres.security.UserDetailsServiceImpl;
+import com.coderepojon.dbPostgres.services.TokenService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -24,9 +25,12 @@ public class SecurityConfig {
     @Autowired
     private JwtUtil jwtUtil;
 
+    @Autowired
+    public TokenService tokenService;
+
     @Bean
     public JwtAuthenticationFilter jwtAuthenticationFilter() {
-        return new JwtAuthenticationFilter(jwtUtil, userDetailsService);
+        return new JwtAuthenticationFilter(jwtUtil, userDetailsService, tokenService);
     }
 
     @Bean

@@ -1,5 +1,6 @@
 package com.coderepojon.dbPostgres.security;
 
+import com.coderepojon.dbPostgres.services.TokenService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServlet;
@@ -18,10 +19,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtUtil jwtUtil;
     private final UserDetailsService userDetailsService;
+    private final TokenService tokenService;
 
-    public JwtAuthenticationFilter(JwtUtil jwtUtil, UserDetailsService userDetailsService) {
+    public JwtAuthenticationFilter(JwtUtil jwtUtil, UserDetailsService userDetailsService, TokenService tokenService) {
         this.jwtUtil = jwtUtil;
         this.userDetailsService = userDetailsService;
+        this.tokenService = tokenService;
     }
 
     @Override
@@ -39,7 +42,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if(username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
             UserDetails userDetails = userDetailsService.loadUserByUsername(username);
 
-            if(jwtUtil.isTokenValid(jwt, userDetails)) {
+            // Check token validity AND DB revocation
+            boolean validJwt = jwtUtil.isTokenValid(jwt, userDetails);
+            boolean notRevoked = tokenService != null && !tokenService.isTokenRevoked(jwt);
+
+            if(validJwt && notRevoked) {
                 UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
 
                 authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));

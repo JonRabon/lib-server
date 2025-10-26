@@ -1,19 +1,18 @@
 package com.coderepojon.dbPostgres.controllers;
 
 import com.coderepojon.dbPostgres.domain.entities.RoleEntity;
+import com.coderepojon.dbPostgres.domain.entities.TokenType;
 import com.coderepojon.dbPostgres.domain.entities.UserEntity;
 import com.coderepojon.dbPostgres.repositories.UserRepository;
 import com.coderepojon.dbPostgres.security.JwtUtil;
+import com.coderepojon.dbPostgres.services.TokenService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @RestController
@@ -24,10 +23,12 @@ public class AuthController {
     @Autowired
     private final UserRepository userRepo;
     private final JwtUtil jwtUtil;
+    private final TokenService tokenService;
 
-    public AuthController(UserRepository userRepo, JwtUtil jwtUtil) {
+    public AuthController(UserRepository userRepo, JwtUtil jwtUtil, TokenService tokenService) {
         this.userRepo = userRepo;
         this.jwtUtil = jwtUtil;
+        this.tokenService = tokenService;
     }
 
     @PostMapping("/login")
@@ -61,6 +62,14 @@ public class AuthController {
 
         String accessToken = jwtUtil.generateAccessToken(username, roleNames);
         String refreshToken = jwtUtil.generateRefreshToken(username);
+
+        // Revoke old tokens first
+        tokenService.revokeAllUserTokens(userEntity);
+
+        // Save new ones
+        Date expiration = jwtUtil.getClaims(accessToken).getExpiration();// use getClaim directly
+        tokenService.saveUserToken(userEntity, accessToken, TokenType.ACCESS, expiration.toInstant());
+        tokenService.saveUserToken(userEntity, refreshToken, TokenType.REFRESH, expiration.toInstant());
 
         userEntity.setToken(accessToken);
         userEntity.setRefreshToken(refreshToken);
@@ -114,16 +123,29 @@ public class AuthController {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Refresh token does not match server record");
             }
 
+            if (tokenService.isTokenRevoked(refreshToken)) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Refresh token has been revoked");
+            }
+
             //Generate a fresh token with same roles
             List<String> roles = userEntity.getRoles()
                     .stream()
                     .map(RoleEntity::getName)
                     .collect(Collectors.toList());
 
-            String newAccessToken = jwtUtil.generateAccessToken(refreshUsername, roles);
+            // Revoke this refresh token before issuing a new one
+            tokenService.revokeToken(accessToken);
+            tokenService.revokeToken(refreshToken);
 
-            //Optionally update stored token/session
+            String newAccessToken = jwtUtil.generateAccessToken(refreshUsername, roles);
             String newRefreshToken = jwtUtil.generateRefreshToken(refreshUsername);
+
+            // Save new tokens
+            Date expiration = jwtUtil.getClaims(accessToken).getExpiration();// use getClaim directly
+            tokenService.saveUserToken(userEntity, newAccessToken, TokenType.ACCESS, expiration.toInstant());
+            tokenService.saveUserToken(userEntity, newRefreshToken, TokenType.REFRESH, expiration.toInstant());
+
+            // Update user entity
             userEntity.setRefreshToken(newRefreshToken);
             userEntity.setToken(newAccessToken);
             userRepo.save(userEntity);
@@ -150,6 +172,11 @@ public class AuthController {
         try {
             String token = authHeader.substring(7);
             String username = jwtUtil.extractUsername(token);
+
+            UserEntity thisUser = userRepo.fetchUserWithRoles(username)
+                            .orElseThrow(() -> new UsernameNotFoundException("User not found"));
+
+            tokenService.revokeAllUserTokens(thisUser);
 
             userRepo.fetchUserWithRoles(username).ifPresent(user -> {
                 //Invalidate tokens and session
