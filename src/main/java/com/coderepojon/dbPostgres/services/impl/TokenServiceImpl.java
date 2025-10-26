@@ -4,7 +4,9 @@ import com.coderepojon.dbPostgres.domain.entities.TokenEntity;
 import com.coderepojon.dbPostgres.domain.entities.TokenType;
 import com.coderepojon.dbPostgres.domain.entities.UserEntity;
 import com.coderepojon.dbPostgres.repositories.TokenRepository;
+import com.coderepojon.dbPostgres.repositories.UserRepository;
 import com.coderepojon.dbPostgres.services.TokenService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -14,9 +16,11 @@ import java.util.List;
 public class TokenServiceImpl implements TokenService {
 
     private final TokenRepository tokenRepo;
+    private final UserRepository userRepo; // admin revocation
 
-    public  TokenServiceImpl(TokenRepository tokenRepo) {
+    public  TokenServiceImpl(TokenRepository tokenRepo, UserRepository userRepo) {
         this.tokenRepo = tokenRepo;
+        this.userRepo = userRepo;
     }
 
     @Override
@@ -53,5 +57,22 @@ public class TokenServiceImpl implements TokenService {
             t.setRevoked(true);
             tokenRepo.save(t);
         });
+    }
+
+    @Override
+    public void revokeTokensByUsername(String username) {
+        UserEntity user = userRepo.fetchUserWithRoles(username)
+                .orElseThrow(() -> new UsernameNotFoundException("User not found: " + username));
+
+        List<TokenEntity> validTokens = tokenRepo.findAllByUserAndRevokedFalse(user);
+        validTokens.forEach(t -> t.setRevoked(true));
+
+        tokenRepo.saveAll(validTokens);
+
+        // Optionally clear tokens and session fields from the user record
+        user.setToken(null);
+        user.setRefreshToken(null);
+        user.setSession(null);
+        userRepo.save(user);
     }
 }

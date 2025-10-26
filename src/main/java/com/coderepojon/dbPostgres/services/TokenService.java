@@ -10,4 +10,7 @@ public interface TokenService {
     void revokeAllUserTokens(UserEntity user);
     boolean isTokenRevoked(String token);
     void revokeToken(String token);
+
+    // Allow admin to revoke tokens by username
+    void revokeTokensByUsername(String username);
 }
