@@ -18,8 +18,14 @@ public class JwtUtil {
     @Value("${jwt.secret}")
     private String secret;
 
-    @Value("${jwt.expiration.ms}")
-    private long expirationTimeMs;
+//    @Value("${jwt.expiration.ms}")
+//    private long expirationTimeMs;
+
+    @Value("${jwt.access.expiration.ms}")
+    private long accessExpirationTimeMs;
+
+    @Value("${jwt.refresh.expiration.ms}")
+    private long refreshExpirationTimeMs;
 
     private Key getSigningKey() {
         return Keys.hmacShaKeyFor(secret.getBytes());
@@ -28,15 +34,29 @@ public class JwtUtil {
     /**
      * Generate JWT token with roles
      */
-    public String generateToken(String username, Collection<String> roles) {
+    public String generateAccessToken(String username, Collection<String> roles) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("roles", roles);
+        claims.put("type", "access");
 
         return Jwts.builder()
                 .setClaims(claims)
                 .setSubject(username)
                 .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + expirationTimeMs))
+                .setExpiration(new Date(System.currentTimeMillis() + accessExpirationTimeMs))
+                .signWith(getSigningKey(), SignatureAlgorithm.HS512)
+                .compact();
+    }
+
+    public String generateRefreshToken(String username) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("type", "refresh");
+
+        return Jwts.builder()
+                .setClaims(claims)
+                .setSubject(username)
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + refreshExpirationTimeMs))
                 .signWith(getSigningKey(), SignatureAlgorithm.HS512)
                 .compact();
     }
@@ -77,6 +97,11 @@ public class JwtUtil {
     public boolean isTokenExpired(String token) {
         final Date expiration = getClaims(token).getExpiration();
         return expiration.before(new Date());
+    }
+
+    public boolean isRefreshToken(String token) {
+        String type = (String) getClaims(token).get("type");
+        return "refresh".equals(type);
     }
 
     public Claims getClaims(String token){

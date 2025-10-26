@@ -22,6 +22,7 @@ public class UserEntity {
     private String username;
     private String password;
     private String token;
+    private String refreshToken;
     private String session;
 
     @ManyToMany(fetch = FetchType.EAGER)
