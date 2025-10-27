@@ -1,5 +1,6 @@
 package com.coderepojon.dbPostgres.services.impl;
 
+import com.coderepojon.dbPostgres.controllers.ForceLogoutController;
 import com.coderepojon.dbPostgres.domain.entities.TokenEntity;
 import com.coderepojon.dbPostgres.domain.entities.TokenType;
 import com.coderepojon.dbPostgres.domain.entities.UserEntity;
@@ -74,5 +75,8 @@ public class TokenServiceImpl implements TokenService {
         user.setRefreshToken(null);
         user.setSession(null);
         userRepo.save(user);
+
+        // Notify via SSE
+        ForceLogoutController.sendLogoutEvent(username);
     }
 }
