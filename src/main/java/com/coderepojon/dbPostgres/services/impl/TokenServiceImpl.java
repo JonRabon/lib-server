@@ -1,74 +1,120 @@
 package com.coderepojon.dbPostgres.services.impl;
 
 import com.coderepojon.dbPostgres.controllers.ForceLogoutController;
+import com.coderepojon.dbPostgres.domain.dto.TokenMetadata;
 import com.coderepojon.dbPostgres.domain.entities.TokenEntity;
+import com.coderepojon.dbPostgres.domain.entities.TokenMetadataEntity;
 import com.coderepojon.dbPostgres.domain.entities.TokenType;
 import com.coderepojon.dbPostgres.domain.entities.UserEntity;
+import com.coderepojon.dbPostgres.repositories.TokenMetadataRepository;
 import com.coderepojon.dbPostgres.repositories.TokenRepository;
 import com.coderepojon.dbPostgres.repositories.UserRepository;
 import com.coderepojon.dbPostgres.services.TokenService;
-import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
+import java.util.Objects;
 
 @Service
+@RequiredArgsConstructor
 public class TokenServiceImpl implements TokenService {
 
     private final TokenRepository tokenRepo;
+    private final TokenMetadataRepository metadataRepo;
     private final UserRepository userRepo; // admin revocation
 
-    public  TokenServiceImpl(TokenRepository tokenRepo, UserRepository userRepo) {
-        this.tokenRepo = tokenRepo;
-        this.userRepo = userRepo;
+    // -------------------------------
+    // Existence / Validity Check
+    // -------------------------------
+    @Override
+    public boolean existAndValid(String token, UserEntity user) {
+        return tokenRepo.findByTokenAndUser(token, user)
+                .filter(t -> !t.isRevoked() && t.getExpiresAt().isAfter(Instant.now()))
+                .isPresent();
     }
 
+    // -------------------------------
+    // Save Token (Basic)
+    // -------------------------------
     @Override
     public void saveUserToken(UserEntity user, String jwtToken, TokenType type, Instant expiresAt) {
-        saveUserToken(user, jwtToken, type, expiresAt, null);
+        TokenEntity token = TokenEntity.builder()
+                .user(user)
+                .token(jwtToken)
+                .revoked(false)
+                .expiresAt(expiresAt)
+                .createdAt(Instant.now())
+                .status("ACTIVE")
+                .build();
+
+        tokenRepo.save(token);
     }
 
+    // -------------------------------
+    // Save Token (with simple metadata map)
+    // -------------------------------
     @Override
-    public void saveUserToken(UserEntity user, String jwtToken, TokenType type, Instant expiresAt, Map<String, Object> metadata) {
-        TokenEntity.TokenEntityBuilder builder = TokenEntity.builder()
+    public void saveUserToken(UserEntity user, String jwtToken, TokenType type, Instant expiresAt, TokenMetadata metadata) {
+        String sessionId = metadata != null ? (String) metadata.getSessionId() : null;
+
+        TokenEntity token = TokenEntity.builder()
                 .user(user)
                 .token(jwtToken)
                 .type(type)
-                .expiresAt(expiresAt)
                 .revoked(false)
+                .expiresAt(expiresAt)
                 .createdAt(Instant.now())
-                .status("SUCCESS"); // Default status
-
+                .status("ACTIVE") // Default status
+                .sessionId(sessionId)
+                .build();
         if (metadata != null) {
-            builder.deviceId((String) metadata.getOrDefault("deviceId", null))
-                    .device((String) metadata.getOrDefault("device", null))
-                    .browser((String) metadata.getOrDefault("browser", null))
-                    .os((String) metadata.getOrDefault("os", null))
-                    .ipAddress((String) metadata.getOrDefault("ipAddress", null))
-                    .country((String) metadata.getOrDefault("country", null))
-                    .city((String) metadata.getOrDefault("city", null))
-                    .sessionId((String) metadata.getOrDefault("sessionId", null));
+            TokenMetadataEntity metadataEntity = TokenMetadataEntity.builder()
+                    .token(token)
+                    .deviceId(metadata != null ? metadata.getDeviceId() : null)
+                    .device(metadata != null ? metadata.getDevice() : null)
+                    .browser(metadata != null ? metadata.getBrowser() : null)
+                    .os(metadata != null ? metadata.getOs() : null)
+                    .ipAddress(metadata != null ? metadata.getIpAddress() : null)
+                    .country(metadata != null ? metadata.getCountry() : null)
+                    .city(metadata != null ? metadata.getCity() : null)
+                    .sessionId(sessionId)
+                    .userAgentRaw(metadata != null ? metadata.getUserAgentRaw() : null)
+                    .loginMethod(metadata != null ? metadata.getLoginMethod() : null)
+                    .mfaUsed(metadata != null && Boolean.TRUE.equals(metadata.getMfaUsed()))
+                    .mfaType(metadata != null ? metadata.getMfaType() : null)
+                    .isNewDevice(metadata != null && Boolean.TRUE.equals(metadata.getIsNewDevice()))
+                    .isVpnOrProxy(metadata != null && Boolean.TRUE.equals(metadata.getIsVpnOrProxy()))
+                    .networkProvider(metadata != null ? metadata.getNetworkProvider() : null)
+                    .createdAt(Instant.now())
+                    .issuer(null)
+                    .clientId(null)
+                    .riskScore(null)
+                    .success(true)
+                    .failureReason(null)
+                    .latitude(null)
+                    .longitude(null)
+                    .timezone(null)
+                    .logoutAt(null)
+                    .revokedReason(null)
+                    .build();
+            token.setMetadata(metadataEntity);
         }
-
-        tokenRepo.save(builder.build());
+        tokenRepo.save(token);
     }
 
+    // -------------------------------
+    // Save Token (with status + metadata)
+    // -------------------------------
+    @Override
     public void saveUserTokenWithMetadata(
             UserEntity user,
             String jwtToken,
             TokenType type,
             Instant expiresAt,
             String status,
-            String deviceId,
-            String device,
-            String browser,
-            String os,
-            String ipAddress,
-            String country,
-            String city,
-            String sessionId
+            TokenMetadata metadata
     ) {
         TokenEntity token = TokenEntity.builder()
                 .user(user)
@@ -77,34 +123,51 @@ public class TokenServiceImpl implements TokenService {
                 .revoked(false)
                 .expiresAt(expiresAt)
                 .createdAt(Instant.now())
-                .status(status)
-                .deviceId(deviceId)
-                .device(device)
-                .browser(browser)
-                .os(os)
-                .ipAddress(ipAddress)
-                .country(country)
-                .city(city)
-                .sessionId(sessionId)
+                .status(status != null ? status : "PENDING")
+                .sessionId(metadata != null ? metadata.getSessionId() : null)
                 .build();
 
+        if (metadata != null) {
+            TokenMetadataEntity metadataEntity = TokenMetadataEntity.builder()
+                    .token(token)
+                    .deviceId(metadata.getDeviceId())
+                    .device(metadata.getDevice())
+                    .browser(metadata.getBrowser())
+                    .os(metadata.getOs())
+                    .ipAddress(metadata.getIpAddress())
+                    .country(metadata.getCountry())
+                    .city(metadata.getCity())
+                    .sessionId(metadata.getSessionId())
+                    .userAgentRaw(metadata.getUserAgentRaw())
+                    .loginMethod(metadata.getLoginMethod())
+                    .mfaUsed(Boolean.TRUE.equals(metadata.getMfaUsed()))
+                    .createdAt(Instant.now())
+                    .build();
+            token.setMetadata(metadataEntity);
+        }
+        // Persist both
+        // Cascade takes care of metadata
         tokenRepo.save(token);
     }
 
-    public boolean existAndValid(String token, UserEntity user) {
-        return tokenRepo.findByUserAndTokenAndRevokedFalse(user, token)
-                .map(t -> t.getExpiresAt().isAfter(Instant.now()))
-                .orElse(false);
-    }
-
+    // -------------------------------
+    // Revoke Tokens
+    // -------------------------------
     @Override
     public  void revokeAllUserTokens(UserEntity user) {
-        tokenRepo.findAll().stream()
-                .filter(t -> t.getUser().equals(user) && !t.isRevoked())
-                .forEach(t -> {
-                    t.setRevoked(true);
-                    tokenRepo.save(t);
-                });
+        List<TokenEntity> validToken = tokenRepo.findAllValidTokensByUser(user.getId());
+        validToken.forEach(token -> token.setRevoked(true));
+        tokenRepo.saveAll(validToken);
+    }
+
+    // --- Revoke all tokens for a user except a session ---
+    @Override
+    public void revokeAllExceptSession(UserEntity user, String keepSessionId) {
+        List<TokenEntity> tokens = tokenRepo.findAllValidTokensByUser(user.getId());
+        tokens.stream()
+                .filter(t -> !Objects.equals(t.getSessionId(), keepSessionId))
+                .forEach(t -> t.setRevoked(true));
+        tokenRepo.saveAll(tokens);
     }
 
     @Override
@@ -124,18 +187,26 @@ public class TokenServiceImpl implements TokenService {
 
     @Override
     public void revokeTokensByUsername(String username) {
-        UserEntity user = userRepo.fetchUserWithRoles(username)
-                .orElseThrow(() -> new UsernameNotFoundException("User not found: " + username));
-
-        List<TokenEntity> validTokens = tokenRepo.findAllByUserAndRevokedFalse(user);
-        validTokens.forEach(t -> {
-            t.setRevoked(true);
-            t.setStatus("REVOKED");
+        userRepo.findByUsername(username).ifPresent(user -> {
+            revokeAllUserTokens(user);
+            user.setSession(null);
+            userRepo.save(user);
         });
 
-        tokenRepo.saveAll(validTokens);
-
         // Notify via SSE
-        ForceLogoutController.sendLogoutEvent(username);
+        ForceLogoutController.sendLogoutEventToAllSession(username);
+    }
+
+    // --- Revoke all tokens in a session ---
+    @Override
+    public void revokeTokensBySession(UserEntity user, String sessionId) {
+        List<TokenEntity> tokens = tokenRepo.findAllByUserAndSessionId(user, sessionId);
+        tokens.forEach(t -> t.setRevoked(true));
+        tokenRepo.saveAll(tokens);
+    }
+
+    // Check if session is still valid
+    public boolean isSessionActive(UserEntity user, String sessionId) {
+        return tokenRepo.findAllByUserAndSessionId(user, sessionId).size() > 0;
     }
 }

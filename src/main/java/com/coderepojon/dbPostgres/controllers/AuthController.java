@@ -1,15 +1,13 @@
 package com.coderepojon.dbPostgres.controllers;
 
 import com.coderepojon.dbPostgres.domain.dto.LoginRequestDTO;
-import com.coderepojon.dbPostgres.domain.entities.RoleEntity;
-import com.coderepojon.dbPostgres.domain.entities.TokenEntity;
-import com.coderepojon.dbPostgres.domain.entities.TokenType;
-import com.coderepojon.dbPostgres.domain.entities.UserEntity;
+import com.coderepojon.dbPostgres.domain.dto.TokenMetadata;
+import com.coderepojon.dbPostgres.domain.entities.*;
 import com.coderepojon.dbPostgres.repositories.TokenRepository;
 import com.coderepojon.dbPostgres.repositories.UserRepository;
 import com.coderepojon.dbPostgres.security.JwtUtil;
 import com.coderepojon.dbPostgres.services.TokenService;
-import jakarta.transaction.Transactional;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -38,7 +36,7 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<?> login(@RequestBody LoginRequestDTO loginData) {
+    public ResponseEntity<?> login(@RequestBody LoginRequestDTO loginData, HttpServletRequest request) {
         String username = loginData.getUsername();
         String password = loginData.getPassword();
 
@@ -61,7 +59,9 @@ public class AuthController {
 
         // Generate JWT
         String accessToken = jwtUtil.generateAccessToken(username, roleNames);
+        Date accessExp  = jwtUtil.getClaims(accessToken).getExpiration();// use getClaim directly
         String refreshToken = jwtUtil.generateRefreshToken(username);
+        Date refreshExp  = jwtUtil.getClaims(refreshToken).getExpiration();// use getClaim directly
 
         // Extract metadata from request
         Map<String, Object> meta = loginData.getMetadata();
@@ -69,49 +69,78 @@ public class AuthController {
         String device = meta != null ? (String) meta.getOrDefault("device", null) : null;
         String browser = meta != null ? (String) meta.getOrDefault("browser", null) : null;
         String os = meta != null ? (String) meta.getOrDefault("os", null) : null;
-        String ipAddress = meta != null ? (String) meta.getOrDefault("ipAddress", null) : null;
+        String ipAddress = meta != null ? (String) meta.getOrDefault("ipAddress", null) : request.getRemoteAddr();
         String country = meta != null ? (String) meta.getOrDefault("country", null) : null;
         String city = meta != null ? (String) meta.getOrDefault("city", null) : null;
-        String sessionId = session_Id;
 
-        // Revoke old tokens first
-        tokenService.revokeAllUserTokens(userEntity);
+        String userAgentRaw = request.getHeader("User-Agent");
+        String loginMethod = "PASSWORD"; // or OAUTH, MFA, etc.
+        Boolean mfaUsed = false;
+        String mfaType = null;
 
-        // Save new ones
-        Date expiration = jwtUtil.getClaims(accessToken).getExpiration();// use getClaim directly
+        TokenMetadata metadata = TokenMetadata.builder()
+                .deviceId(deviceId)
+                .device(device)
+                .browser(browser)
+                .os(os)
+                .ipAddress(ipAddress)
+                .country(country)
+                .city(city)
+                .sessionId(session_Id)
+                .userAgentRaw(userAgentRaw)
+                .loginMethod(loginMethod)
+                .mfaUsed(mfaUsed)
+                .mfaType(mfaType)
+                .success(true)
+                // Fields below reserved for future use (set to null for now)
+                .failureReason(null)
+                .latitude(null)
+                .longitude(null)
+                .timezone(null)
+                .issuer(null)
+                .clientId(null)
+                .riskScore(null)
+                .isNewDevice(null)
+                .isVpnOrProxy(null)
+                .networkProvider(null)
+                .logoutAt(null)
+                .revokedReason(null)
+                .build();
 
-        tokenService.saveUserTokenWithMetadata(
-                userEntity,
-                accessToken,
-                TokenType.ACCESS,
-                expiration.toInstant(),
-                "SUCCESS",
-                deviceId,
-                device,
-                browser,
-                os,
-                ipAddress,
-                country,
-                city,
-                sessionId
-        );
+//        tokenService.saveUserTokenWithMetadata(
+//                userEntity,
+//                accessToken,
+//                TokenType.ACCESS,
+//                accessExp .toInstant(),
+//                "SUCCESS",
+//                deviceId,
+//                device,
+//                browser,
+//                os,
+//                ipAddress,
+//                country,
+//                city,
+//                session_Id
+//        );
+//
+//        tokenService.saveUserTokenWithMetadata(
+//                userEntity,
+//                refreshToken,
+//                TokenType.REFRESH,
+//                refreshExp.toInstant(),
+//                "SUCCESS",
+//                deviceId,
+//                device,
+//                browser,
+//                os,
+//                ipAddress,
+//                country,
+//                city,
+//                session_Id
+//        );
 
-        tokenService.saveUserTokenWithMetadata(
-                userEntity,
-                refreshToken,
-                TokenType.REFRESH,
-                expiration.toInstant(),
-                "SUCCESS",
-                deviceId,
-                device,
-                browser,
-                os,
-                ipAddress,
-                country,
-                city,
-                sessionId
-        );
-
+        tokenService.saveUserTokenWithMetadata(userEntity, accessToken, TokenType.ACCESS, accessExp.toInstant(), "ACTIVE", metadata);
+        tokenService.saveUserTokenWithMetadata(userEntity, refreshToken, TokenType.REFRESH, refreshExp.toInstant(), "ACTIVE", metadata);
         // --- Prepare response ---
         Map<String, Object> response = new HashMap<>();
         response.put("accessToken", accessToken);
@@ -136,9 +165,8 @@ public class AuthController {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid or expired refresh token - please log in again");
             }
 
-            // Extract username from refresh token
+            // Extract username from old refresh token and access token
             String refreshUsername = jwtUtil.extractUsername(refreshToken);
-            // Extract username from old access token
             String accessUsername = jwtUtil.extractUsername(accessToken);
 
             //Both must belong to the same user
@@ -156,8 +184,13 @@ public class AuthController {
                         .body("Refresh token does not exist or has been revoked");
             }
 
-            // Get metadata from existing refresh token
+            // Fetch old refresh token entity (and its metadata)
             TokenEntity oldRefresh = tokenRepo.findByToken(refreshToken).orElseThrow();
+            TokenMetadataEntity oldMeta = oldRefresh.getMetadata();
+
+            // Revoke this refresh token before issuing a new one
+            tokenService.revokeToken(accessToken);
+            tokenService.revokeToken(refreshToken);
 
             //Generate a fresh token with same roles
             List<String> roles = userEntity.getRoles()
@@ -165,30 +198,26 @@ public class AuthController {
                     .map(RoleEntity::getName)
                     .collect(Collectors.toList());
 
-            // Revoke this refresh token before issuing a new one
-            tokenService.revokeToken(accessToken);
-            tokenService.revokeToken(refreshToken);
-
             String newAccessToken = jwtUtil.generateAccessToken(refreshUsername, roles);
-            String newRefreshToken = jwtUtil.generateRefreshToken(refreshUsername);
-
             Date newAccessExpiry = jwtUtil.getClaims(newAccessToken).getExpiration();
+
+            String newRefreshToken = jwtUtil.generateRefreshToken(refreshUsername);
             Date newRefreshExpiry = jwtUtil.getClaims(newRefreshToken).getExpiration();
 
-            // 🧠 Reuse old metadata for new tokens
-            Map<String, Object> metadata = Map.of(
-                    "deviceId", oldRefresh.getDeviceId(),
-                    "device", oldRefresh.getDevice(),
-                    "browser", oldRefresh.getBrowser(),
-                    "os", oldRefresh.getOs(),
-                    "ipAddress", oldRefresh.getIpAddress(),
-                    "country", oldRefresh.getCountry(),
-                    "city", oldRefresh.getCity(),
-                    "sessionId", oldRefresh.getSessionId()
-            );
+            // Reuse old metadata for new tokens
+            TokenMetadata reusedMeta = TokenMetadata.builder()
+                    .deviceId(oldMeta.getDeviceId())
+                    .device(oldMeta.getDevice())
+                    .browser(oldMeta.getBrowser())
+                    .os(oldMeta.getOs())
+                    .ipAddress(oldMeta.getIpAddress())
+                    .country(oldMeta.getCountry())
+                    .city(oldMeta.getCity())
+                    .sessionId(oldMeta.getSessionId())
+                    .build();
 
-            tokenService.saveUserToken(userEntity, newAccessToken, TokenType.ACCESS, newAccessExpiry.toInstant(), metadata);
-            tokenService.saveUserToken(userEntity, newRefreshToken, TokenType.REFRESH, newRefreshExpiry.toInstant(), metadata);
+            tokenService.saveUserToken(userEntity, newAccessToken, TokenType.ACCESS, newAccessExpiry.toInstant(), reusedMeta);
+            tokenService.saveUserToken(userEntity, newRefreshToken, TokenType.REFRESH, newRefreshExpiry.toInstant(), reusedMeta);
 
             Map<String, Object> response = new HashMap<>();
             response.put("accessToken", newAccessToken);
@@ -227,5 +256,51 @@ public class AuthController {
             e.printStackTrace();
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Logout failed");
         }
+    }
+
+    @PostMapping("/logoutSession")
+    public ResponseEntity<?> logoutSession(@RequestHeader("Authorization") String authHeader, @RequestParam String sessionId) {
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            return ResponseEntity.badRequest().body("Missing or invalid Authorization header");
+        }
+
+        sessionId = sessionId.replace("\"", "");
+
+        String token = authHeader.substring(7);
+        String username = jwtUtil.extractUsername(token);
+
+        UserEntity user = userRepo.fetchUserWithRoles(username)
+                .orElseThrow(() -> new UsernameNotFoundException("User not found"));
+
+        // Revoke all tokens with this sessionId
+        tokenService.revokeTokensBySession(user, sessionId);
+
+        // If the session being revoked is the current one, also clear user's session field
+        if (sessionId.equals(user.getSession())) {
+            user.setSession(null);
+            userRepo.save(user);
+        }
+
+        return ResponseEntity.ok("Session logged out successfully");
+    }
+
+    @PostMapping("/logoutAllExceptCurrent")
+    public ResponseEntity<?> logoutAllExceptCurrent(@RequestHeader("Authorization") String authHeader) {
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            return ResponseEntity.badRequest().body("Missing or invalid Authorization header");
+        }
+
+        String token = authHeader.substring(7);
+        String username = jwtUtil.extractUsername(token);
+
+        UserEntity user = userRepo.fetchUserWithRoles(username)
+                .orElseThrow(() -> new UsernameNotFoundException("User not found"));
+
+        String currentSession = user.getSession();
+
+        // Revoke all tokens except current session
+        tokenService.revokeAllExceptSession(user, currentSession);
+
+        return ResponseEntity.ok("All other sessions revoked successfully");
     }
 }

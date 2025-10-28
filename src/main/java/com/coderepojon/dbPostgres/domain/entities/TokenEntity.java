@@ -39,29 +39,11 @@ public class TokenEntity {
     private Instant createdAt = Instant.now();
 
     @Column(length = 20)
-    private String status; // "SUCCESS", "FAILURE"
-
-    @Column(name = "device_id", length = 100)
-    private String deviceId;
-
-    @Column(length = 150)
-    private String device;
-
-    @Column(length = 100)
-    private String browser;
-
-    @Column(length = 100)
-    private String os;
-
-    @Column(length = 45)
-    private String ipAddress;
-
-    @Column(length = 100)
-    private String country;
-
-    @Column(length = 100)
-    private String city;
+    private String status; // SUCCESS / REVOKED / FAILED
 
     @Column(name = "session_id", length = 100)
-    private String sessionId;
+    private String sessionId; // tie multiple tokens to same session
+
+    @OneToOne(mappedBy = "token", cascade = CascadeType.ALL, fetch = FetchType.LAZY, orphanRemoval = true)
+    private TokenMetadataEntity metadata;
 }

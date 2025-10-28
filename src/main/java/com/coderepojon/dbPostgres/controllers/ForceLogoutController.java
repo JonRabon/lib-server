@@ -11,15 +11,24 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.awt.*;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 @RestController
 @RequestMapping("/api/sse")
 public class ForceLogoutController {
 
-    //Keep track of active SSE connections
-    private static final Map<String, SseEmitter> emitters = new ConcurrentHashMap<>();
+    // Track multiple SSE emitters per username (multi-session support)
+    // 🔹 Maps: username → list of sessionIds
+    private static final Map<String, List<String>> userSessions = new ConcurrentHashMap<>();
+
+    // 🔹 Maps: sessionId → SseEmitter
+    private static final Map<String, SseEmitter> sessionEmitters = new ConcurrentHashMap<>();
+
     private final JwtUtil jwtUtil;
     private final UserDetailsService userDetailsService;
 
@@ -28,51 +37,91 @@ public class ForceLogoutController {
         this.userDetailsService = userDetailsService;
     }
 
-    @GetMapping(value = "/subscribe/{username}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter subscribe(@PathVariable String username, @RequestParam("token") String token) {
+    /**
+     * Each browser or device connects with its own sessionId.
+     * Token is still validated, but emitter is keyed by sessionId.
+     */
+    @GetMapping(value = "/subscribe/{username}/{sessionId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter subscribe(@PathVariable String username, @PathVariable String sessionId, @RequestParam("token") String token) {
         try {
-            // Validate token manually
-            String extractedUsername  = jwtUtil.extractUsername(token);
-            if (!username.equals(extractedUsername )) {
+            // Validate token
+            String extractedUsername = jwtUtil.extractUsername(token);
+            if (!username.equals(extractedUsername)) {
                 throw new RuntimeException("Username mismatch in token");
             }
 
-            UserDetails userDetails = userDetailsService.loadUserByUsername(extractedUsername );
-            // Validate token
+            UserDetails userDetails = userDetailsService.loadUserByUsername(extractedUsername);
             if (!jwtUtil.isTokenValid(token, userDetails)) {
                 throw new RuntimeException("Invalid or expired token");
             }
 
-            // Valid user — register SSE emitter
-            SseEmitter emitter = new SseEmitter(Long.MAX_VALUE); // Keep open
-            emitters.put(username, emitter);
+            // Create and store SSE emitter
+            SseEmitter emitter = new SseEmitter(Long.MAX_VALUE);
+            sessionEmitters.put(sessionId, emitter);
 
-            emitter.onCompletion(() -> emitters.remove(username));
-            emitter.onTimeout(() -> emitters.remove(username));
+            userSessions.computeIfAbsent(username, k -> new ArrayList<>()).add(sessionId);
 
-            System.out.println("SSE connected for user: " + username);
+            emitter.onCompletion(() -> removeEmitter(username, sessionId));
+            emitter.onTimeout(() -> removeEmitter(username, sessionId));
+
+            System.out.printf("SSE connected for user=%s, session=%s%n", username, sessionId);
             return emitter;
+
         } catch (Exception e) {
-            System.err.println("SSE subscription rejected: " + e.getMessage());
+            System.err.printf("SSE subscription rejected for %s: %s%n", username, e.getMessage());
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Invalid or expired token");
         }
     }
 
+    // Remove a specific emitter when closed or timed out
+    public static void removeEmitter(String username, String sessionId) {
+        sessionEmitters.remove(sessionId);
+        userSessions.computeIfPresent(username, (key, sessions) -> {
+            sessions.remove(sessionId);
+            return sessions.isEmpty() ? null : sessions;
+        });
+        System.out.printf("SSE connection removed: user=%s, session=%s%n", username, sessionId);
+    }
+
     // Called when an admin revokes someone's session
-    public static void sendLogoutEvent(String username) {
-        SseEmitter emitter = emitters.get(username);
+    public static void sendLogoutEventToAllSession(String username) {
+        List<String> sessions = userSessions.get(username);
+        if (sessions == null || sessions.isEmpty()) {
+            System.out.printf("ℹNo active sessions for user=%s%n", username);
+            return;
+        }
+
+        System.out.printf("Sending logout to all %d sessions for user=%s%n", sessions.size(), username);
+        for (String sessionId : sessions) {
+            sendLogoutEventToSession(sessionId);
+        }
+
+        // Clean up after logout
+        userSessions.remove(username);
+    }
+
+    // Notify multiple sessions (e.g., admin revokes all of a user’s sessions).
+    public static void sendLogoutEventToSessions(List<String> sessionIds) {
+        for (String sessionId : sessionIds) {
+            sendLogoutEventToSession(sessionId);
+        }
+    }
+
+    // Force logout for one specific session
+    public static void sendLogoutEventToSession(String sessionId) {
+        SseEmitter emitter = sessionEmitters.get(sessionId);
         if (emitter != null) {
             try {
-                System.out.println("Sending logout event to: " + username);
-                emitter.send(SseEmitter.event().name("logout").data("Your session was revoked"));
+                System.out.printf("Sending logout event to sessionId=%s%n", sessionId);
+                emitter.send(SseEmitter.event().name("logout").data("Your session has been revoked"));
                 emitter.complete();
-                emitters.remove(username);
             } catch (IOException e) {
                 emitter.completeWithError(e);
-                emitters.remove(username);
+            } finally {
+                sessionEmitters.remove(sessionId);
             }
         } else {
-            System.out.println("No active SSE connection found for user: " + username);
+            System.out.printf("No active SSE connection for sessionId=%s%n", sessionId);
         }
     }
 }
