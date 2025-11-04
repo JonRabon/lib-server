@@ -3,6 +3,7 @@ package com.coderepojon.dbPostgres.services;
 import com.coderepojon.dbPostgres.domain.dto.TokenMetadata;
 import com.coderepojon.dbPostgres.domain.entities.TokenType;
 import com.coderepojon.dbPostgres.domain.entities.UserEntity;
+import jakarta.servlet.http.HttpServletRequest;
 
 import java.time.Instant;
 import java.util.Map;
@@ -12,8 +13,6 @@ public interface TokenService {
     boolean existAndValid(String token, UserEntity user);
 
     void saveUserToken(UserEntity user, String jwtToken, TokenType type, Instant expiresAt);
-
-    void saveUserToken(UserEntity user, String jwtToken, TokenType type, Instant expiresAt, TokenMetadata metadata);
 
     void revokeAllUserTokens(UserEntity user);
 
@@ -38,6 +37,7 @@ public interface TokenService {
             TokenType type,
             Instant expiresAt,
             String status,
-            TokenMetadata metadata
+            TokenMetadata metadata,
+            HttpServletRequest request
     );
 }

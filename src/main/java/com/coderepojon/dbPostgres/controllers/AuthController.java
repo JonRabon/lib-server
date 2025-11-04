@@ -1,6 +1,7 @@
 package com.coderepojon.dbPostgres.controllers;
 
 import com.coderepojon.dbPostgres.domain.dto.LoginRequestDTO;
+import com.coderepojon.dbPostgres.domain.dto.RefreshRequestDTO;
 import com.coderepojon.dbPostgres.domain.dto.TokenMetadata;
 import com.coderepojon.dbPostgres.domain.entities.*;
 import com.coderepojon.dbPostgres.repositories.TokenRepository;
@@ -8,6 +9,7 @@ import com.coderepojon.dbPostgres.repositories.UserRepository;
 import com.coderepojon.dbPostgres.security.JwtUtil;
 import com.coderepojon.dbPostgres.services.TokenService;
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -17,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.*;
 import java.util.stream.Collectors;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/auth")
 @CrossOrigin(origins = "http://localhost:4200")
@@ -50,7 +53,6 @@ public class AuthController {
         String session_Id = UUID.randomUUID().toString();
         userEntity.setSession(session_Id);
         userRepo.save(userEntity);
-//        userEntity = userRepo.saveAndFlush(userEntity); // ensure persistence
 
         List<String> roleNames = userEntity.getRoles()
                 .stream()
@@ -63,84 +65,33 @@ public class AuthController {
         String refreshToken = jwtUtil.generateRefreshToken(username);
         Date refreshExp  = jwtUtil.getClaims(refreshToken).getExpiration();// use getClaim directly
 
-        // Extract metadata from request
-        Map<String, Object> meta = loginData.getMetadata();
-        String deviceId = meta != null ? (String) meta.getOrDefault("deviceId", null) : null;
-        String device = meta != null ? (String) meta.getOrDefault("device", null) : null;
-        String browser = meta != null ? (String) meta.getOrDefault("browser", null) : null;
-        String os = meta != null ? (String) meta.getOrDefault("os", null) : null;
-        String ipAddress = meta != null ? (String) meta.getOrDefault("ipAddress", null) : request.getRemoteAddr();
-        String country = meta != null ? (String) meta.getOrDefault("country", null) : null;
-        String city = meta != null ? (String) meta.getOrDefault("city", null) : null;
+        Map<String, Object> metadataMap = loginData.getMetadata() != null
+                ? new HashMap<>(loginData.getMetadata())
+                : new HashMap<>();
 
-        String userAgentRaw = request.getHeader("User-Agent");
-        String loginMethod = "PASSWORD"; // or OAUTH, MFA, etc.
-        Boolean mfaUsed = false;
-        String mfaType = null;
+        // log.info("loginData: >>> " + loginData.toString());
+        if (loginData.getClientId() != null) {
+            metadataMap.put("clientId", loginData.getClientId());
+            metadataMap.put("sessionId", session_Id);
+            //log.info("single entry points");
+        } else {
+            // For multiple entry points, Auto-Detect Client ID Server-Side
+            // log.info("multiple entry points 1");
+            String userAgentRaw = metadataMap != null ? (String) metadataMap.getOrDefault("userAgentRaw", null) : null;
+            if (userAgentRaw != null ) {
+                String clientId = request.getHeader("X-Client-Id"); // e.g., set by frontend
+                if (clientId == null && userAgentRaw != null && userAgentRaw.contains("Android")) {
+                    metadataMap.put("clientId", "mobile-android");
+                }
+            }
+        }
 
-        TokenMetadata metadata = TokenMetadata.builder()
-                .deviceId(deviceId)
-                .device(device)
-                .browser(browser)
-                .os(os)
-                .ipAddress(ipAddress)
-                .country(country)
-                .city(city)
-                .sessionId(session_Id)
-                .userAgentRaw(userAgentRaw)
-                .loginMethod(loginMethod)
-                .mfaUsed(mfaUsed)
-                .mfaType(mfaType)
-                .success(true)
-                // Fields below reserved for future use (set to null for now)
-                .failureReason(null)
-                .latitude(null)
-                .longitude(null)
-                .timezone(null)
-                .issuer(null)
-                .clientId(null)
-                .riskScore(null)
-                .isNewDevice(null)
-                .isVpnOrProxy(null)
-                .networkProvider(null)
-                .logoutAt(null)
-                .revokedReason(null)
-                .build();
+        TokenMetadata metadata = mapDtoFromLoginRequest(metadataMap, null, null);
 
-//        tokenService.saveUserTokenWithMetadata(
-//                userEntity,
-//                accessToken,
-//                TokenType.ACCESS,
-//                accessExp .toInstant(),
-//                "SUCCESS",
-//                deviceId,
-//                device,
-//                browser,
-//                os,
-//                ipAddress,
-//                country,
-//                city,
-//                session_Id
-//        );
-//
-//        tokenService.saveUserTokenWithMetadata(
-//                userEntity,
-//                refreshToken,
-//                TokenType.REFRESH,
-//                refreshExp.toInstant(),
-//                "SUCCESS",
-//                deviceId,
-//                device,
-//                browser,
-//                os,
-//                ipAddress,
-//                country,
-//                city,
-//                session_Id
-//        );
+        // Save access and refresh tokens — server enriches metadata inside service
+        tokenService.saveUserTokenWithMetadata(userEntity, accessToken, TokenType.ACCESS, accessExp.toInstant(), "ACTIVE", metadata, request);
+        tokenService.saveUserTokenWithMetadata(userEntity, refreshToken, TokenType.REFRESH, refreshExp.toInstant(), "ACTIVE", metadata, request);
 
-        tokenService.saveUserTokenWithMetadata(userEntity, accessToken, TokenType.ACCESS, accessExp.toInstant(), "ACTIVE", metadata);
-        tokenService.saveUserTokenWithMetadata(userEntity, refreshToken, TokenType.REFRESH, refreshExp.toInstant(), "ACTIVE", metadata);
         // --- Prepare response ---
         Map<String, Object> response = new HashMap<>();
         response.put("accessToken", accessToken);
@@ -150,10 +101,96 @@ public class AuthController {
         return ResponseEntity.ok(response);
     }
 
+    private TokenMetadata mapDtoFromLoginRequest(Map<String, Object> metadata, String accessToken, String refreshToken) {
+        if (metadata == null) {
+            return null;
+        }
+
+        boolean isRefreshFlow = (refreshToken != null && accessToken != null);
+
+        TokenMetadata.TokenMetadataBuilder builder = TokenMetadata.builder()
+                // Common fields for both login & refresh
+                .networkProvider((String) metadata.getOrDefault("networkProvider", null))
+                .ipAddress((String) metadata.getOrDefault("ipAddress", null))
+                .country((String) metadata.getOrDefault("country", null))
+                .city((String) metadata.getOrDefault("city", null))
+                .clientId((String) metadata.getOrDefault("clientId", null))
+                .isVpnOrProxy(parseBoolean(metadata.get("isVpnOrProxy")))
+                .issuer((String) metadata.getOrDefault("issuer", null))
+                .latitude(parseDouble(metadata.get("latitude")))
+                .longitude(parseDouble(metadata.get("longitude")))
+                .riskScore(parseDouble(metadata.get("riskScore")))
+                .success(parseBoolean(metadata.get("success")))
+                .timezone((String) metadata.getOrDefault("timezone", null));
+
+        // If it’s a login flow, include full metadata
+        if (!isRefreshFlow) {
+            builder
+                    .device((String) metadata.getOrDefault("device", null))
+                    .deviceId((String) metadata.getOrDefault("deviceId", null))
+                    .browser((String) metadata.getOrDefault("browser", null))
+                    .os((String) metadata.getOrDefault("os", null))
+                    .isNewDevice(parseBoolean(metadata.get("isNewDevice")))
+                    .loginMethod((String) metadata.getOrDefault("loginMethod", null))
+                    .mfaUsed(parseBoolean(metadata.get("mfaUsed")))
+                    .mfaType((String) metadata.getOrDefault("mfaType", null))
+                    .userAgentRaw((String) metadata.getOrDefault("userAgentRaw", null))
+                    .sessionId((String) metadata.getOrDefault("sessionId", null))
+                    .failureReason((String) metadata.getOrDefault("failureReason", null))
+                    .revokedReason((String) metadata.getOrDefault("revokedReason", null));
+        }
+
+        return builder.build();
+    }
+
+    /**
+     * Utility to safely parse any object to Boolean.
+     * Handles cases where JSON sends "true"/"false" as strings or booleans.
+     */
+    private Boolean parseBoolean(Object value) {
+        if (value == null) return null;
+        if (value instanceof Boolean) return (Boolean) value;
+        if (value instanceof String) return Boolean.valueOf((String) value);
+        return null;
+    }
+
+    /**
+     * Utility to safely parse any object to Float.
+     */
+    private Float parseFloat(Object value) {
+        if (value == null) return null;
+        if (value instanceof Number) return ((Number) value).floatValue();
+        if (value instanceof String s && !s.isEmpty()) {
+            try {
+                return Float.parseFloat(s);
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Utility to safely parse any object to Double.
+     */
+    private Double parseDouble(Object value) {
+        if (value == null) return null;
+        if (value instanceof Number) return ((Number) value).doubleValue();
+        if (value instanceof String s && !s.isEmpty()) {
+            try {
+                return Double.parseDouble(s);
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        return null;
+    }
+
     @PostMapping("/refresh")
-    public ResponseEntity<?> refreshToken(@RequestBody Map<String, String> request) {
-        String refreshToken = request.get("refreshToken");
-        String accessToken = request.get("accessToken");
+    public ResponseEntity<?> refreshToken(@RequestBody RefreshRequestDTO request, HttpServletRequest httpRequest) {
+        String refreshToken = request.getRefreshToken();
+        String accessToken = request.getAccessToken();
+//        TokenMetadata meta = request.getMetadata();
 
         if (refreshToken == null || accessToken == null) {
             return ResponseEntity.badRequest().body("Both refreshToken and accessToken are required");
@@ -192,7 +229,7 @@ public class AuthController {
             tokenService.revokeToken(accessToken);
             tokenService.revokeToken(refreshToken);
 
-            //Generate a fresh token with same roles
+            // Generate a fresh token with same roles
             List<String> roles = userEntity.getRoles()
                     .stream()
                     .map(RoleEntity::getName)
@@ -204,20 +241,26 @@ public class AuthController {
             String newRefreshToken = jwtUtil.generateRefreshToken(refreshUsername);
             Date newRefreshExpiry = jwtUtil.getClaims(newRefreshToken).getExpiration();
 
-            // Reuse old metadata for new tokens
-            TokenMetadata reusedMeta = TokenMetadata.builder()
-                    .deviceId(oldMeta.getDeviceId())
-                    .device(oldMeta.getDevice())
-                    .browser(oldMeta.getBrowser())
-                    .os(oldMeta.getOs())
-                    .ipAddress(oldMeta.getIpAddress())
-                    .country(oldMeta.getCountry())
-                    .city(oldMeta.getCity())
-                    .sessionId(oldMeta.getSessionId())
-                    .build();
+            // log.info("loginRequest: >>> " + request.toString());
+            Map<String, Object> metadataMap = request.getMetadata() != null
+                    ? new HashMap<>(request.getMetadata())
+                    : new HashMap<>();
 
-            tokenService.saveUserToken(userEntity, newAccessToken, TokenType.ACCESS, newAccessExpiry.toInstant(), reusedMeta);
-            tokenService.saveUserToken(userEntity, newRefreshToken, TokenType.REFRESH, newRefreshExpiry.toInstant(), reusedMeta);
+            TokenMetadata metadata = mapDtoFromLoginRequest(metadataMap, request.getAccessToken(), request.getRefreshToken());
+            metadata.setDeviceId(oldMeta.getDeviceId());
+            metadata.setDevice(oldMeta.getDevice());
+            metadata.setBrowser(oldMeta.getBrowser());
+            metadata.setOs(oldMeta.getOs());
+            metadata.setIsNewDevice(oldMeta.getIsNewDevice());
+            metadata.setLoginMethod(oldMeta.getLoginMethod());
+            metadata.setMfaUsed(oldMeta.getMfaUsed());
+            metadata.setMfaType(oldMeta.getMfaType());
+            metadata.setUserAgentRaw(oldMeta.getUserAgentRaw());
+            metadata.setSessionId(oldMeta.getSessionId());
+
+            // Save access and refresh tokens — server enriches metadata inside service
+            tokenService.saveUserTokenWithMetadata(userEntity, newAccessToken, TokenType.ACCESS, newAccessExpiry.toInstant(), "ACTIVE", metadata, httpRequest);
+            tokenService.saveUserTokenWithMetadata(userEntity, newRefreshToken, TokenType.REFRESH, newRefreshExpiry.toInstant(), "ACTIVE", metadata, httpRequest);
 
             Map<String, Object> response = new HashMap<>();
             response.put("accessToken", newAccessToken);
@@ -264,6 +307,7 @@ public class AuthController {
             return ResponseEntity.badRequest().body("Missing or invalid Authorization header");
         }
 
+        log.info("logoutRequest: >>> " + authHeader.toString());
         sessionId = sessionId.replace("\"", "");
 
         String token = authHeader.substring(7);
@@ -272,6 +316,7 @@ public class AuthController {
         UserEntity user = userRepo.fetchUserWithRoles(username)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
 
+        // log.info(user.getUsername() + "---" + sessionId);
         // Revoke all tokens with this sessionId
         tokenService.revokeTokensBySession(user, sessionId);
 

@@ -18,7 +18,7 @@ public class TokenMetadataEntity {
     private Long id;
 
     @OneToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "token_id", referencedColumnName = "id")
+    @JoinColumn(name = "token_id", referencedColumnName = "id", unique =true)
     private TokenEntity token;
 
     @Column(name = "created_at", nullable = false)
@@ -34,22 +34,27 @@ public class TokenMetadataEntity {
 
     @Column(name = "user_agent_raw", columnDefinition = "TEXT")
     private String userAgentRaw;
+
     private String loginMethod;
     private Boolean mfaUsed;
     private String mfaType;
     private Boolean success;
-
     private String failureReason;
     private Double latitude;
     private Double longitude;
     private String timezone;
+
+    @Column(name = "session_id")
     private String sessionId;
+
     private String issuer;
     private String clientId;
     private Float riskScore;
     private Boolean isNewDevice;
     private Boolean isVpnOrProxy;
     private String networkProvider;
+
+    @Column(name = "logout_at")
     private Instant logoutAt;
 
     private String revokedReason;

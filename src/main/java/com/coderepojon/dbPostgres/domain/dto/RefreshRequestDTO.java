@@ -5,9 +5,8 @@ import lombok.Data;
 import java.util.Map;
 
 @Data
-public class LoginRequestDTO {
-    private String username;
-    private String password;
+public class RefreshRequestDTO {
+    private String refreshToken;
+    private String accessToken;
     private Map<String, Object> metadata;
-    private String clientId;
 }

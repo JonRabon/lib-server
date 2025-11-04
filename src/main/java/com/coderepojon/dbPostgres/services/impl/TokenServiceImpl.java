@@ -10,13 +10,17 @@ import com.coderepojon.dbPostgres.repositories.TokenMetadataRepository;
 import com.coderepojon.dbPostgres.repositories.TokenRepository;
 import com.coderepojon.dbPostgres.repositories.UserRepository;
 import com.coderepojon.dbPostgres.services.TokenService;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class TokenServiceImpl implements TokenService {
@@ -24,6 +28,10 @@ public class TokenServiceImpl implements TokenService {
     private final TokenRepository tokenRepo;
     private final TokenMetadataRepository metadataRepo;
     private final UserRepository userRepo; // admin revocation
+    private final IpInfoService ipInfoService;
+
+    @Value("${app.issuer:unknown-issuer}")
+    private String issuer;
 
     // -------------------------------
     // Existence / Validity Check
@@ -53,58 +61,6 @@ public class TokenServiceImpl implements TokenService {
     }
 
     // -------------------------------
-    // Save Token (with simple metadata map)
-    // -------------------------------
-    @Override
-    public void saveUserToken(UserEntity user, String jwtToken, TokenType type, Instant expiresAt, TokenMetadata metadata) {
-        String sessionId = metadata != null ? (String) metadata.getSessionId() : null;
-
-        TokenEntity token = TokenEntity.builder()
-                .user(user)
-                .token(jwtToken)
-                .type(type)
-                .revoked(false)
-                .expiresAt(expiresAt)
-                .createdAt(Instant.now())
-                .status("ACTIVE") // Default status
-                .sessionId(sessionId)
-                .build();
-        if (metadata != null) {
-            TokenMetadataEntity metadataEntity = TokenMetadataEntity.builder()
-                    .token(token)
-                    .deviceId(metadata != null ? metadata.getDeviceId() : null)
-                    .device(metadata != null ? metadata.getDevice() : null)
-                    .browser(metadata != null ? metadata.getBrowser() : null)
-                    .os(metadata != null ? metadata.getOs() : null)
-                    .ipAddress(metadata != null ? metadata.getIpAddress() : null)
-                    .country(metadata != null ? metadata.getCountry() : null)
-                    .city(metadata != null ? metadata.getCity() : null)
-                    .sessionId(sessionId)
-                    .userAgentRaw(metadata != null ? metadata.getUserAgentRaw() : null)
-                    .loginMethod(metadata != null ? metadata.getLoginMethod() : null)
-                    .mfaUsed(metadata != null && Boolean.TRUE.equals(metadata.getMfaUsed()))
-                    .mfaType(metadata != null ? metadata.getMfaType() : null)
-                    .isNewDevice(metadata != null && Boolean.TRUE.equals(metadata.getIsNewDevice()))
-                    .isVpnOrProxy(metadata != null && Boolean.TRUE.equals(metadata.getIsVpnOrProxy()))
-                    .networkProvider(metadata != null ? metadata.getNetworkProvider() : null)
-                    .createdAt(Instant.now())
-                    .issuer(null)
-                    .clientId(null)
-                    .riskScore(null)
-                    .success(true)
-                    .failureReason(null)
-                    .latitude(null)
-                    .longitude(null)
-                    .timezone(null)
-                    .logoutAt(null)
-                    .revokedReason(null)
-                    .build();
-            token.setMetadata(metadataEntity);
-        }
-        tokenRepo.save(token);
-    }
-
-    // -------------------------------
     // Save Token (with status + metadata)
     // -------------------------------
     @Override
@@ -114,7 +70,8 @@ public class TokenServiceImpl implements TokenService {
             TokenType type,
             Instant expiresAt,
             String status,
-            TokenMetadata metadata
+            TokenMetadata metadata,
+            HttpServletRequest request
     ) {
         TokenEntity token = TokenEntity.builder()
                 .user(user)
@@ -123,31 +80,76 @@ public class TokenServiceImpl implements TokenService {
                 .revoked(false)
                 .expiresAt(expiresAt)
                 .createdAt(Instant.now())
-                .status(status != null ? status : "PENDING")
+                .status(status != null ? status : "SUCCESS")
                 .sessionId(metadata != null ? metadata.getSessionId() : null)
                 .build();
 
+        // server-side IP (trust server request)
+        String ip = request != null ? extractClientIp(request) : null;
+        IpInfoService.IpDetails ipDetails = ip != null ? ipInfoService.lookup(ip) : null;
+
         if (metadata != null) {
+            // determine is_new_device
+            Boolean isNewDevice = null;
+            if (metadata.getDeviceId() != null) {
+                List<TokenMetadataEntity> prev = metadataRepo.findAllByDeviceIdAndUserId(metadata.getDeviceId(), user.getId());
+                isNewDevice = prev == null || prev.isEmpty();
+            }
+
+            // compute riskScore (simple heuristic)
+            float score =0f;
+            if (ipDetails != null && Boolean.TRUE.equals(ipDetails.proxy())) score += 60;
+            if (Boolean.TRUE.equals(isNewDevice)) score += 25;
+
+            // add small penalty if country mismatch with last known (optional)
+            // cap
+            score = Math.min(100f, score);
+
+            // log.info("region: {}", ipDetails.region());
             TokenMetadataEntity metadataEntity = TokenMetadataEntity.builder()
                     .token(token)
-                    .deviceId(metadata.getDeviceId())
-                    .device(metadata.getDevice())
-                    .browser(metadata.getBrowser())
-                    .os(metadata.getOs())
-                    .ipAddress(metadata.getIpAddress())
-                    .country(metadata.getCountry())
-                    .city(metadata.getCity())
-                    .sessionId(metadata.getSessionId())
-                    .userAgentRaw(metadata.getUserAgentRaw())
-                    .loginMethod(metadata.getLoginMethod())
-                    .mfaUsed(Boolean.TRUE.equals(metadata.getMfaUsed()))
                     .createdAt(Instant.now())
+                    .deviceId(metadata != null ? metadata.getDeviceId() : null)
+                    .device(metadata != null ? metadata.getDevice() : null)
+                    .browser(metadata != null ? metadata.getBrowser() : null)
+                    .os(metadata != null ? metadata.getOs() : null)
+                    .ipAddress(ip != null ? ip : (metadata != null ? metadata.getIpAddress() : null))
+                    .country(ipDetails != null && ipDetails.country_name() != null ? ipDetails.country_name() : (metadata != null ? metadata.getCountry() : null))
+                    .city(ipDetails != null && ipDetails.city() != null ? ipDetails.city() : (metadata != null ? metadata.getCity() : null))
+                    .sessionId(metadata != null ? metadata.getSessionId() : null)
+                    .userAgentRaw(metadata != null ? metadata.getUserAgentRaw() : null)
+                    .loginMethod(metadata != null ? metadata.getLoginMethod() : null)
+                    .mfaUsed(Boolean.TRUE.equals(metadata.getMfaUsed()))
+                    .mfaType(metadata != null ? metadata.getMfaType() : null)
+                    .clientId(metadata != null ? metadata.getClientId() : null)
+                    .isNewDevice(isNewDevice)
+                    .isVpnOrProxy(ipDetails != null ? ipDetails.proxy() : null)
+                    .issuer(issuer + "-" + (metadata.getIssuer() != null ? metadata.getIssuer() : "unknown"))
+                    .networkProvider(ipDetails != null && ipDetails.org() != null ? ipDetails.org() : metadata.getNetworkProvider())
+                    .latitude(ipDetails != null && ipDetails.latitude() != null ? ipDetails.latitude() : metadata.getLatitude())
+                    .longitude(ipDetails != null && ipDetails.longitude() != null ? ipDetails.longitude() : metadata.getLongitude())
+                    .timezone(ipDetails != null && ipDetails.timezone() != null ? ipDetails.timezone() : metadata.getTimezone())
+                    .riskScore(score)
+                    .success(Boolean.TRUE)
                     .build();
+
             token.setMetadata(metadataEntity);
         }
         // Persist both
         // Cascade takes care of metadata
         tokenRepo.save(token);
+    }
+
+    private String extractClientIp(HttpServletRequest request) {
+        //Gives real client IP behind proxies
+        //Can be spoofed if not coming from trusted proxies
+        String xff = request.getHeader("X-Forwarded-For");
+        if (xff != null && !xff.isEmpty()) {
+            return xff.split(",")[0].trim();
+        }
+        //Simple, always works
+        //Can be wrong if behind proxies
+        return request.getRemoteAddr();
     }
 
     // -------------------------------
@@ -201,7 +203,10 @@ public class TokenServiceImpl implements TokenService {
     @Override
     public void revokeTokensBySession(UserEntity user, String sessionId) {
         List<TokenEntity> tokens = tokenRepo.findAllByUserAndSessionId(user, sessionId);
-        tokens.forEach(t -> t.setRevoked(true));
+        tokens.forEach(t -> {
+            t.setRevoked(true);
+            t.getMetadata().setLogoutAt(Instant.now());
+        });
         tokenRepo.saveAll(tokens);
     }
 
