@@ -11,11 +11,11 @@ import java.util.Optional;
 
 public interface TokenRepository extends JpaRepository<TokenEntity, Long> {
     // Find all non-revoked and non-expired tokens for a specific user
+    //          AND t.expiresAt > CURRENT_TIMESTAMP
     @Query("""
         SELECT t FROM TokenEntity t
         WHERE t.user.id = :userId
           AND t.revoked = false
-          AND t.expiresAt > CURRENT_TIMESTAMP
     """)
     List<TokenEntity> findAllValidTokensByUser(@Param("userId") Long userId);
 

@@ -190,7 +190,6 @@ public class AuthController {
     public ResponseEntity<?> refreshToken(@RequestBody RefreshRequestDTO request, HttpServletRequest httpRequest) {
         String refreshToken = request.getRefreshToken();
         String accessToken = request.getAccessToken();
-//        TokenMetadata meta = request.getMetadata();
 
         if (refreshToken == null || accessToken == null) {
             return ResponseEntity.badRequest().body("Both refreshToken and accessToken are required");
@@ -276,7 +275,10 @@ public class AuthController {
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<?> logout(@RequestHeader(value = "Authorization", required = false) String authHeader) {
+    public ResponseEntity<?> logout(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestBody(required = false) Map<String, String> body
+    ) {
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             return ResponseEntity.badRequest().body("Missing or invalid Authorization header");
         }
@@ -285,10 +287,11 @@ public class AuthController {
             String token = authHeader.substring(7);
             String username = jwtUtil.extractUsername(token);
 
+            String reason = body != null ? body.getOrDefault("logoutReason", "Normal") : "Undefined";
             UserEntity user = userRepo.fetchUserWithRoles(username)
                             .orElseThrow(() -> new UsernameNotFoundException("User not found"));
 
-            tokenService.revokeAllUserTokens(user);
+            tokenService.revokeAllUserTokens(user, reason);
 
             user.setSession(null);
             userRepo.save(user);
@@ -302,23 +305,30 @@ public class AuthController {
     }
 
     @PostMapping("/logoutSession")
-    public ResponseEntity<?> logoutSession(@RequestHeader("Authorization") String authHeader, @RequestParam String sessionId) {
+    public ResponseEntity<?> logoutSession(
+            @RequestHeader("Authorization") String authHeader,
+            @RequestParam String sessionId,
+            @RequestBody(required = false) Map<String, String> body
+    ) {
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             return ResponseEntity.badRequest().body("Missing or invalid Authorization header");
         }
 
-        log.info("logoutRequest: >>> " + authHeader.toString());
-        sessionId = sessionId.replace("\"", "");
+//        log.info("logoutRequest: >>> " + authHeader.toString());
 
+        sessionId = sessionId.replace("\"", "");
         String token = authHeader.substring(7);
         String username = jwtUtil.extractUsername(token);
+
+        String reason = body != null ? body.getOrDefault("logoutReason", "Normal") : "Undefined";
+        log.info("Logout request by {} | Session={} | Reason={}", username, sessionId, reason);
 
         UserEntity user = userRepo.fetchUserWithRoles(username)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
 
         // log.info(user.getUsername() + "---" + sessionId);
         // Revoke all tokens with this sessionId
-        tokenService.revokeTokensBySession(user, sessionId);
+        tokenService.revokeTokensBySession(user, sessionId, reason);
 
         // If the session being revoked is the current one, also clear user's session field
         if (sessionId.equals(user.getSession())) {

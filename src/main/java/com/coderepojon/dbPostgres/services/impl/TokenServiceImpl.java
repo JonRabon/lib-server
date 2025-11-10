@@ -156,10 +156,14 @@ public class TokenServiceImpl implements TokenService {
     // Revoke Tokens
     // -------------------------------
     @Override
-    public  void revokeAllUserTokens(UserEntity user) {
+    public  void revokeAllUserTokens(UserEntity user, String logoutReason) {
         List<TokenEntity> validToken = tokenRepo.findAllValidTokensByUser(user.getId());
-        validToken.forEach(token -> token.setRevoked(true));
+
+        validToken.forEach(token -> markTokenAsRevoked(token, logoutReason));
+
         tokenRepo.saveAll(validToken);
+        log.info("✅ Revoked {} tokens for user '{}' — Reason: {}",
+                validToken.size(), user.getUsername(), logoutReason);
     }
 
     // --- Revoke all tokens for a user except a session ---
@@ -188,9 +192,9 @@ public class TokenServiceImpl implements TokenService {
     }
 
     @Override
-    public void revokeTokensByUsername(String username) {
+    public void revokeTokensByUsername(String username, String logoutReason) {
         userRepo.findByUsername(username).ifPresent(user -> {
-            revokeAllUserTokens(user);
+            revokeAllUserTokens(user, logoutReason);
             user.setSession(null);
             userRepo.save(user);
         });
@@ -201,13 +205,26 @@ public class TokenServiceImpl implements TokenService {
 
     // --- Revoke all tokens in a session ---
     @Override
-    public void revokeTokensBySession(UserEntity user, String sessionId) {
+    public void revokeTokensBySession(UserEntity user, String sessionId, String logoutReason) {
         List<TokenEntity> tokens = tokenRepo.findAllByUserAndSessionId(user, sessionId);
-        tokens.forEach(t -> {
-            t.setRevoked(true);
-            t.getMetadata().setLogoutAt(Instant.now());
-        });
+        tokens.forEach(t -> markTokenAsRevoked(t, logoutReason));
         tokenRepo.saveAll(tokens);
+    }
+
+    /**
+     * Marks the given token as revoked, updates its metadata,
+     * and sets audit information like logoutAt and revokedReason.
+     */
+    private void markTokenAsRevoked(TokenEntity token, String reason) {
+        token.setRevoked(true);
+
+        TokenMetadataEntity metadata = token.getMetadata();
+        if (metadata != null) {
+            metadata.setLogoutAt(Instant.now());
+            metadata.setRevokedReason(
+                    (reason == null || reason.isBlank()) ? "Undefined" : reason
+            );
+        }
     }
 
     // Check if session is still valid

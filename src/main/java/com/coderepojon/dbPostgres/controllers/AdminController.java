@@ -26,11 +26,19 @@ public class AdminController {
 
     @PostMapping("/revoke/{username}")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Map<String, String>> revokeUserTokens(@PathVariable String username) {
-        UserEntity user = userRepo.fetchUserWithRoles(username)
-                        .orElseThrow(() -> new UsernameNotFoundException("User not found"));
+    public ResponseEntity<Map<String, String>> revokeUserTokens(
+            @PathVariable String username,
+            @RequestBody(required = false) Map<String, String> body
+    ) {
+        String reason = (body != null)
+                ? body.getOrDefault("logoutReason", "Revoked by Admin")
+                : "Undefined";
 
-        tokenService.revokeTokensByUsername(username);
+        UserEntity user = userRepo.fetchUserWithRoles(username)
+                        .orElseThrow(() -> new UsernameNotFoundException("User not found" + username));
+
+        tokenService.revokeTokensByUsername(username, reason);
+
         Map<String, String> response = new HashMap<>();
         response.put("message", "Revoked all tokens for user: " + username);
         return ResponseEntity.ok(response);

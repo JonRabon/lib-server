@@ -14,7 +14,7 @@ public interface TokenService {
 
     void saveUserToken(UserEntity user, String jwtToken, TokenType type, Instant expiresAt);
 
-    void revokeAllUserTokens(UserEntity user);
+    void revokeAllUserTokens(UserEntity user, String logoutReason);
 
     void revokeAllExceptSession(UserEntity user, String sessionId);
 
@@ -23,9 +23,9 @@ public interface TokenService {
     void revokeToken(String token);
 
     // Allow admin to revoke tokens by username
-    void revokeTokensByUsername(String username);
+    void revokeTokensByUsername(String username, String logoutReason);
 
-    void revokeTokensBySession(UserEntity user, String sessionId);
+    void revokeTokensBySession(UserEntity user, String sessionId, String logoutReason);
 
     /**
      * Saves a JWT token along with detailed metadata such as device, browser, and location info.
