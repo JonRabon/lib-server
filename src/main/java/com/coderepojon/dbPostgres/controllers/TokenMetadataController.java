@@ -70,6 +70,8 @@ public class TokenMetadataController {
             String issuer,
             String clientId,
             String revokedReason,
+            Boolean revoked,
+            Enum tokenType,
             String timezone
     ) {
         public static TokenMetadataResponse fromEntity(TokenMetadataEntity e) {
@@ -98,6 +100,8 @@ public class TokenMetadataController {
                     e.getIssuer(),
                     e.getClientId(),
                     e.getRevokedReason(),
+                    e.getToken() != null && e.getToken().getUser() != null ? e.getToken().isRevoked() : null,
+                    e.getToken() != null && e.getToken().getUser() != null ? e.getToken().getType() : null,
                     e.getTimezone()
             );
         }
