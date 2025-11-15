@@ -7,7 +7,9 @@ import com.coderepojon.dbPostgres.services.TokenService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -17,6 +19,7 @@ import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 @Configuration
+@EnableMethodSecurity // Allows @PreAuthorize, @PostAuthorize, @RolesAllowed
 public class SecurityConfig {
 
     @Autowired
@@ -33,6 +36,9 @@ public class SecurityConfig {
         return new JwtAuthenticationFilter(jwtUtil, userDetailsService, tokenService);
     }
 
+    /**
+     * CORS Config (Frontend: Angular Local Dev)
+     */
     @Bean
     public WebMvcConfigurer corsConfigurer() {
         return new WebMvcConfigurer() {
@@ -41,25 +47,43 @@ public class SecurityConfig {
                 registry.addMapping("/**")
                         .allowedOrigins("http://localhost:4200")
                         .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+                        .allowedMethods("*")
                         .allowedHeaders("*")
                         .allowCredentials(true);
             }
         };
     }
 
+    /**
+     * Main Security Filter Chain
+     */
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
                 .cors(Customizer.withDefaults())
-                .csrf(AbstractHttpConfigurer::disable)
+                .csrf(csrf -> csrf.disable())
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+
                 .authorizeHttpRequests(auth -> auth
+
+                        // Public endpoints
                         .requestMatchers("/api/auth/login").permitAll()
+                        .requestMatchers("/api/auth/refresh").permitAll()
                         .requestMatchers("/api/sse/subscribe/**").permitAll()
-                        .requestMatchers("/authors").hasAuthority("ROLE_ADMIN")
+
+                        // Admin-only REST endpoints
+                        .requestMatchers(HttpMethod.POST, "/authors/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/authors/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/authors/**").hasRole("ADMIN")
+
+                        // Everyone authenticated can read
+                        .requestMatchers(HttpMethod.GET, "/authors/**").authenticated()
+
+                        // Everything else must be authenticated
                         .anyRequest().authenticated()
                 )
-                .addFilterBefore(jwtAuthenticationFilter(), UsernamePasswordAuthenticationFilter.class)
-                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+                // JWT filter BEFORE UsernamePasswordAuthenticationFilter
+                .addFilterBefore(jwtAuthenticationFilter(), UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }

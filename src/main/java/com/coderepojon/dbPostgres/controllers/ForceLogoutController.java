@@ -69,7 +69,17 @@ public class ForceLogoutController {
 
         } catch (Exception e) {
             System.err.printf("SSE subscription rejected for %s: %s%n", username, e.getMessage());
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Invalid or expired token");
+
+            // Return a failed SseEmitter
+            SseEmitter emitter = new SseEmitter(0L); // completes immediately
+            try {
+                emitter.send(SseEmitter.event()
+                        .name("error")
+                        .data("Invalid or expired token"));
+            } catch (Exception ignored) {}
+
+            emitter.complete();
+            return emitter;
         }
     }
 

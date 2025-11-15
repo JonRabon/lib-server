@@ -313,15 +313,14 @@ public class AuthController {
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             return ResponseEntity.badRequest().body("Missing or invalid Authorization header");
         }
-
-//        log.info("logoutRequest: >>> " + authHeader.toString());
+        // log.info("logoutRequest: >>> " + authHeader.toString());
 
         sessionId = sessionId.replace("\"", "");
         String token = authHeader.substring(7);
         String username = jwtUtil.extractUsername(token);
 
         String reason = body != null ? body.getOrDefault("logoutReason", "Normal") : "Undefined";
-        log.info("Logout request by {} | Session={} | Reason={}", username, sessionId, reason);
+        // log.info("Logout request by {} | Session={} | Reason={}", username, sessionId, reason);
 
         UserEntity user = userRepo.fetchUserWithRoles(username)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
@@ -336,7 +335,12 @@ public class AuthController {
             userRepo.save(user);
         }
 
-        return ResponseEntity.ok("Session logged out successfully");
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", 200);
+        response.put("message", "Session logged out successfully");
+        response.put("sessionId", sessionId);
+        response.put("username", username);
+        return ResponseEntity.ok(response);
     }
 
     @PostMapping("/logoutAllExceptCurrent")

@@ -46,9 +46,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         try {
             username = jwtUtil.extractUsername(jwt);
         } catch (Exception e) {
-            // Invalid token → reject
-            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            response.getWriter().write("{\"error\": \"Unauthorized\"}");
+            reject(response);
             return;
         }
 
@@ -58,10 +56,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         // Reject refresh tokens on normal API endpoints
         if (isRefreshToken && !isRefreshEndpoint) {
-            // If someone tries to use a refresh token on a normal API route
-            log.warn("Blocked refresh token used on API endpoint: {}", request.getRequestURI());
-            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            response.getWriter().write("{\"error\": \"Unauthorized\"}");
+            reject(response);
             return;
         }
 
@@ -70,22 +65,34 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             UserDetails userDetails = userDetailsService.loadUserByUsername(username);
 
             // Check token validity AND DB revocation
-            boolean validJwt = jwtUtil.isTokenValid(jwt, userDetails);
-            boolean notRevoked = tokenService == null || !tokenService.isTokenRevoked(jwt);
+            boolean validJwt;
+            boolean notRevoked;
+
+            try {
+                validJwt = jwtUtil.isTokenValid(jwt, userDetails);
+                notRevoked = !tokenService.isTokenRevoked(jwt);
+            } catch (Exception e) {
+                reject(response);
+                return;
+            }
 
             // Only proceed if username exists and auth not set
-            if(jwtUtil.isTokenValid(jwt, userDetails) && (tokenService == null || !tokenService.isTokenRevoked(jwt))) {
+            if(validJwt && notRevoked) {
                 // If token is valid and not revoked, set authentication
                 UsernamePasswordAuthenticationToken authToken =
                         new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
                 authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                 SecurityContextHolder.getContext().setAuthentication(authToken);
             } else {
-                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                response.getWriter().write("{\"error\": \"Unauthorized\"}");
+                reject(response);
                 return;
             }
         }
         filterChain.doFilter(request, response);
+    }
+
+    private void reject(HttpServletResponse response) throws IOException {
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        response.getWriter().write("{\"error\": \"Unauthorized\"}");
     }
 }
