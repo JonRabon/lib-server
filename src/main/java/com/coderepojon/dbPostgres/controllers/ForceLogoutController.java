@@ -15,8 +15,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.*;
 
 @RestController
 @RequestMapping("/api/sse")
@@ -31,6 +30,7 @@ public class ForceLogoutController {
 
     private final JwtUtil jwtUtil;
     private final UserDetailsService userDetailsService;
+    private static final long HEARTBEAT_INTERVAL = 15000;
 
     public ForceLogoutController(JwtUtil jwtUtil, UserDetailsService userDetailsService) {
         this.jwtUtil = jwtUtil;
@@ -58,8 +58,10 @@ public class ForceLogoutController {
             // Create and store SSE emitter
             SseEmitter emitter = new SseEmitter(Long.MAX_VALUE);
             sessionEmitters.put(sessionId, emitter);
-
             userSessions.computeIfAbsent(username, k -> new ArrayList<>()).add(sessionId);
+
+            // START HEARTBEAT
+            startHeartbeat(emitter, sessionId);
 
             emitter.onCompletion(() -> removeEmitter(username, sessionId));
             emitter.onTimeout(() -> removeEmitter(username, sessionId));
@@ -81,6 +83,19 @@ public class ForceLogoutController {
             emitter.complete();
             return emitter;
         }
+    }
+
+    private void startHeartbeat(SseEmitter emitter, String sessionId) {
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+
+        scheduler.scheduleAtFixedRate(() -> {
+            try {
+                emitter.send(SseEmitter.event().name("ping").data("alive"));
+            } catch (Exception e) {
+                scheduler.shutdown();
+                sessionEmitters.remove(sessionId);
+            }
+        }, 0, HEARTBEAT_INTERVAL, TimeUnit.MICROSECONDS);
     }
 
     // Remove a specific emitter when closed or timed out
