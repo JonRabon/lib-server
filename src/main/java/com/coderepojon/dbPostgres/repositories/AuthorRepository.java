@@ -3,12 +3,16 @@ package com.coderepojon.dbPostgres.repositories;
 import com.coderepojon.dbPostgres.domain.entities.AuthorEntity;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.CrudRepository;
-import org.springframework.stereotype.Repository;
+import org.springframework.data.repository.query.Param;
 
-@Repository
+import java.util.List;
+
 public interface AuthorRepository extends CrudRepository<AuthorEntity, Long> {
-    Iterable<AuthorEntity> ageLessThan(int age);
 
-    @Query("SELECT a from AuthorEntity a where a.age > ?1")
-    Iterable<AuthorEntity> findAuthorWithAgeGreaterThan(int age);
+    // Derived query method — Spring Data JPA generates the query automatically
+    List<AuthorEntity> findByAgeLessThan(int age);
+
+    // Explicit @Query for greater-than query
+    @Query("SELECT a FROM AuthorEntity a WHERE a.age > :age")
+    List<AuthorEntity> findAuthorWithAgeGreaterThan(@Param("age") int age);
 }

@@ -7,6 +7,7 @@ import com.coderepojon.dbPostgres.services.TokenService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -20,6 +21,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 @Configuration
 @EnableMethodSecurity // Allows @PreAuthorize, @PostAuthorize, @RolesAllowed
+@Profile("!test") // Only active when NOT in 'test' profile
 public class SecurityConfig {
 
     @Autowired

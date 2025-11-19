@@ -3,6 +3,8 @@ package com.coderepojon.dbPostgres.repositories;
 import com.coderepojon.dbPostgres.TestDataUtil;
 import com.coderepojon.dbPostgres.domain.entities.AuthorEntity;
 import com.coderepojon.dbPostgres.domain.entities.BookEntity;
+import jakarta.transaction.Transactional;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,6 +17,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
+@Transactional
 @ExtendWith(SpringExtension.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 public class BookEntityRepositoryIntegrationTests {
@@ -27,6 +30,12 @@ public class BookEntityRepositoryIntegrationTests {
     public BookEntityRepositoryIntegrationTests(BookRepository underTest, AuthorRepository authorRepository) {
         this.underTest = underTest;
         this.authorRepository = authorRepository;
+    }
+
+    @BeforeEach
+    void setUp() {
+        underTest.deleteAll();  // delete dependent books first
+        authorRepository.deleteAll(); // now safe to delete authors
     }
 
     @Test

@@ -1,6 +1,8 @@
 package com.coderepojon.dbPostgres.controllers;
 
+import com.coderepojon.dbPostgres.NoSecurityConfig;
 import com.coderepojon.dbPostgres.TestDataUtil;
+import com.coderepojon.dbPostgres.config.SecurityConfig;
 import com.coderepojon.dbPostgres.domain.dto.AuthorDto;
 import com.coderepojon.dbPostgres.domain.entities.AuthorEntity;
 import com.coderepojon.dbPostgres.services.AuthorService;
@@ -9,13 +11,18 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.FilterType;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers;
 
 @SpringBootTest
+@ActiveProfiles("test") // Activates the 'test' profile -> loads NoSecurityConfig
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 @AutoConfigureMockMvc
 public class AuthorControllerIntegrationTests {
