@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
@@ -30,12 +31,18 @@ public class AuthController {
     private final JwtUtil jwtUtil;
     private final TokenService tokenService;
     private final TokenRepository tokenRepo;
+    private final PasswordEncoder passwordEncoder;
 
-    public AuthController(UserRepository userRepo, JwtUtil jwtUtil, TokenService tokenService, TokenRepository tokenRepo) {
+    public AuthController(UserRepository userRepo,
+                          JwtUtil jwtUtil,
+                          TokenService tokenService,
+                          TokenRepository tokenRepo,
+                          PasswordEncoder passwordEncoder) {
         this.userRepo = userRepo;
         this.jwtUtil = jwtUtil;
         this.tokenService = tokenService;
         this.tokenRepo = tokenRepo;
+        this.passwordEncoder = passwordEncoder;
     }
 
     @PostMapping("/login")
@@ -46,7 +53,11 @@ public class AuthController {
         UserEntity userEntity = userRepo.fetchUserWithRoles(username)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
 
-        if(!userEntity.getPassword().equals(password)) {
+//        if (!userEntity.getPassword().equals(password)) {
+//            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid credentials");
+//        }
+
+        if (!passwordEncoder.matches(password, userEntity.getPassword())) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid credentials");
         }
 

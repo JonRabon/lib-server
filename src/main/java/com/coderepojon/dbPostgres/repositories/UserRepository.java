@@ -12,6 +12,8 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
     // Simple lookup by username
     Optional<UserEntity> findByUsername(String username);
 
+    boolean existsByUsername(String username);
+
     @Query("SELECT u FROM UserEntity u JOIN FETCH u.roles WHERE u.username = :username")
     Optional<UserEntity> fetchUserWithRoles(@Param("username") String username);
 }
