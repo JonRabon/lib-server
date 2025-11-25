@@ -12,9 +12,15 @@ import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -27,7 +33,7 @@ public class UserAccountServiceImpl implements UserAccountService {
     private final Mapper<UserProfileEntity, UserProfileDto> userProfileDtoMapper;
 
     @Override
-    public UserProfileDto createUser(CreateUserRequestDto req) {
+    public UserProfileDto createUser(CreateUserRequestDto req, MultipartFile avatar) {
 
         // --- 1. Generate & hash default password ---
         String defaultPassword = generateDefaultPassword(req);
@@ -37,7 +43,6 @@ public class UserAccountServiceImpl implements UserAccountService {
         UserEntity user = new UserEntity();
         user.setUsername(req.getEmail());
         user.setPassword(hashedPassword);
-
         userRepository.save(user);
 
         // --- 3. Create UserProfile ---
@@ -59,10 +64,30 @@ public class UserAccountServiceImpl implements UserAccountService {
         profile.setState(req.getState());
         profile.setPostalCode(req.getPostalCode());
         profile.setCountry(req.getCountry());
-        profile.setAvatarUrl(req.getAvatarUrl());
         profile.setBio(req.getBio());
         profile.setCreatedAt(Instant.now());
         profile.setUpdatedAt(Instant.now());
+
+        // ---- 4. Save avatar if uploaded ---
+        if (avatar != null && !avatar.isEmpty()) {
+
+            String ext = Objects.requireNonNull(avatar.getOriginalFilename())
+                    .substring(avatar.getOriginalFilename().lastIndexOf('.'));
+
+            String fileName = user.getId() + ext;
+            Path avatarDir = Paths.get("uploads/avatars");
+
+            try {
+                Files.createDirectories(avatarDir);
+                Path filePath = avatarDir.resolve(fileName);
+                Files.write(filePath, avatar.getBytes());
+
+                profile.setAvatarUrl("http://localhost:8080/static/avatars/" + fileName);
+
+            } catch (IOException e) {
+                throw new RuntimeException("Failed to store avatar", e);
+            }
+        }
 
         profileRepository.save(profile);
 

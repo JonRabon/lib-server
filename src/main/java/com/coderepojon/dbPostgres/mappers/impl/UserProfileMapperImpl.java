@@ -19,7 +19,7 @@ public class UserProfileMapperImpl implements Mapper<UserProfileEntity, UserProf
         this.modelMapper.addMappings(new PropertyMap<UserProfileEntity, UserProfileDto>() {
             @Override
             protected void configure() {
-                skip(destination.getFullName()); // <-- correct way
+                skip(destination.getFullName());
             }
         });
     }
@@ -32,7 +32,7 @@ public class UserProfileMapperImpl implements Mapper<UserProfileEntity, UserProf
             dto.setUserId(entity.getUser().getId());
         }
 
-        //Manually compute fullname
+        // Manually compute fullname
         dto.setFullName(buildFullName(entity));
         return dto;
     }

@@ -1,13 +1,11 @@
 package com.coderepojon.dbPostgres.controllers;
 
-import com.coderepojon.dbPostgres.domain.dto.CreateUserRequestDto;
 import com.coderepojon.dbPostgres.domain.dto.UserProfileDto;
 import com.coderepojon.dbPostgres.domain.entities.UserProfileEntity;
 import com.coderepojon.dbPostgres.mappers.Mapper;
 import com.coderepojon.dbPostgres.services.UserProfileService;
 import com.coderepojon.dbPostgres.services.impl.UserAccountServiceImpl;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -42,16 +40,6 @@ public class UserProfileController {
                 .map(userProfileDtoMapper::mapTo)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
-    }
-
-    // Create new user profile
-    @PostMapping("/add-user")
-    public ResponseEntity<UserProfileDto> createUser(@RequestBody @Valid CreateUserRequestDto dto) {
-        UserProfileDto created = accountService.createUser(dto);
-        return new ResponseEntity<>(created, HttpStatus.CREATED);
-//        UserProfileEntity entity = userProfileDtoMapper.mapFrom(dto); // DTO -> Entity
-//        UserProfileEntity saved = service.create(entity);
-//        return new ResponseEntity<>(userProfileDtoMapper.mapTo(saved), HttpStatus.CREATED);
     }
 
     // Update existing user profile fully (PUT)

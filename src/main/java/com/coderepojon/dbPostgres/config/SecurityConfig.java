@@ -12,7 +12,6 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
@@ -50,7 +49,6 @@ public class SecurityConfig {
                         .allowedOrigins("http://localhost:4200")
                         .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
                         .allowedMethods("*")
-                        .allowedHeaders("*")
                         .allowCredentials(true);
             }
         };
@@ -72,6 +70,9 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/login").permitAll()
                         .requestMatchers("/api/auth/refresh").permitAll()
                         .requestMatchers("/api/sse/subscribe/**").permitAll()
+
+                        // Images
+                        .requestMatchers("/static/avatars/**").permitAll()
 
                         // Admin-only REST endpoints
                         .requestMatchers(HttpMethod.POST, "/authors/**").hasRole("ADMIN")
