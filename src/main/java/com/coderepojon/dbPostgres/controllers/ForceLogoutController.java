@@ -1,18 +1,15 @@
 package com.coderepojon.dbPostgres.controllers;
 
 import com.coderepojon.dbPostgres.security.JwtUtil;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.awt.*;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
@@ -78,7 +75,7 @@ public class ForceLogoutController {
                 emitter.send(SseEmitter.event()
                         .name("error")
                         .data("Invalid or expired token"));
-            } catch (Exception ignored) {}
+            } catch (IOException ignored) {}
 
             emitter.complete();
             return emitter;
@@ -95,7 +92,8 @@ public class ForceLogoutController {
                 scheduler.shutdown();
                 sessionEmitters.remove(sessionId);
             }
-        }, 0, HEARTBEAT_INTERVAL, TimeUnit.MICROSECONDS);
+        // }, 0, HEARTBEAT_INTERVAL, TimeUnit.MICROSECONDS);
+        }, 0, 15, TimeUnit.SECONDS);
     }
 
     // Remove a specific emitter when closed or timed out
