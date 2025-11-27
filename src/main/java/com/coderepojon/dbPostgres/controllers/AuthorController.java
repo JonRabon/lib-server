@@ -2,7 +2,7 @@ package com.coderepojon.dbPostgres.controllers;
 
 import com.coderepojon.dbPostgres.domain.dto.AuthorDto;
 import com.coderepojon.dbPostgres.domain.entities.AuthorEntity;
-import com.coderepojon.dbPostgres.mappers.Mapper;
+import com.coderepojon.dbPostgres.mappers.EntityMapper;
 import com.coderepojon.dbPostgres.services.AuthorService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -17,25 +17,25 @@ public class AuthorController {
 
     private AuthorService authorService;
 
-    private Mapper<AuthorEntity, AuthorDto> authorMapper;
+    private EntityMapper<AuthorEntity, AuthorDto> authorEntityMapper;
 
-    public AuthorController(AuthorService authorService, Mapper<AuthorEntity, AuthorDto> authorMapper) {
+    public AuthorController(AuthorService authorService, EntityMapper<AuthorEntity, AuthorDto> authorEntityMapper) {
         this.authorService = authorService;
-        this.authorMapper = authorMapper;
+        this.authorEntityMapper = authorEntityMapper;
     }
 
     @PostMapping(path = "/authors")
     public ResponseEntity<AuthorDto> createAuthor(@RequestBody AuthorDto author) {
-        AuthorEntity authorEntity = authorMapper.mapFrom(author);
+        AuthorEntity authorEntity = authorEntityMapper.mapFrom(author);
         AuthorEntity savedAuthorEntity = authorService.save(authorEntity);
-        return new ResponseEntity<>(authorMapper.mapTo(savedAuthorEntity), HttpStatus.CREATED);
+        return new ResponseEntity<>(authorEntityMapper.mapTo(savedAuthorEntity), HttpStatus.CREATED);
     }
 
     @GetMapping(path = "/authors")
     public List<AuthorDto> listAuthors() {
         List<AuthorEntity> authors = authorService.findAll();
         return authors.stream()
-                .map(authorMapper::mapTo)
+                .map(authorEntityMapper::mapTo)
                 .collect(Collectors.toList());
 
     }
@@ -44,7 +44,7 @@ public class AuthorController {
     public ResponseEntity<AuthorDto> getAuthor(@PathVariable("id") Long id) {
         Optional<AuthorEntity> foundAuthor = authorService.findOne(id);
         return foundAuthor.map(authorEntity -> {
-            AuthorDto authorDto = authorMapper.mapTo(authorEntity);
+            AuthorDto authorDto = authorEntityMapper.mapTo(authorEntity);
             return new ResponseEntity<>(authorDto, HttpStatus.OK);
         }).orElse(new ResponseEntity<>(HttpStatus.NOT_FOUND));
     }
@@ -56,10 +56,10 @@ public class AuthorController {
         }
 
         authorDto.setId(id);
-        AuthorEntity authorEntity = authorMapper.mapFrom(authorDto);
+        AuthorEntity authorEntity = authorEntityMapper.mapFrom(authorDto);
         AuthorEntity savedAuthorEntity = authorService.save(authorEntity);
         return new ResponseEntity<>(
-                authorMapper.mapTo(savedAuthorEntity),
+                authorEntityMapper.mapTo(savedAuthorEntity),
                 HttpStatus.OK);
     }
 
@@ -71,10 +71,10 @@ public class AuthorController {
             return new ResponseEntity<>(HttpStatus.NOT_FOUND);
         }
 
-        AuthorEntity authorEntity = authorMapper.mapFrom(authorDto);
+        AuthorEntity authorEntity = authorEntityMapper.mapFrom(authorDto);
         AuthorEntity updatedAuthor = authorService.partialUpdate(id, authorEntity);
         return new ResponseEntity<>(
-                authorMapper.mapTo(updatedAuthor),
+                authorEntityMapper.mapTo(updatedAuthor),
                 HttpStatus.OK);
     }
 

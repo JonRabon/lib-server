@@ -4,7 +4,7 @@ import com.coderepojon.dbPostgres.domain.dto.CreateUserRequestDto;
 import com.coderepojon.dbPostgres.domain.dto.UserProfileDto;
 import com.coderepojon.dbPostgres.domain.entities.UserEntity;
 import com.coderepojon.dbPostgres.domain.entities.UserProfileEntity;
-import com.coderepojon.dbPostgres.mappers.Mapper;
+import com.coderepojon.dbPostgres.mappers.EntityMapper;
 import com.coderepojon.dbPostgres.repositories.UserProfileRepository;
 import com.coderepojon.dbPostgres.repositories.UserRepository;
 import com.coderepojon.dbPostgres.services.UserAccountService;
@@ -30,7 +30,7 @@ public class UserAccountServiceImpl implements UserAccountService {
     private final UserRepository userRepository;
     private final UserProfileRepository profileRepository;
     private final PasswordEncoder passwordEncoder;
-    private final Mapper<UserProfileEntity, UserProfileDto> userProfileDtoMapper;
+    private final EntityMapper<UserProfileEntity, UserProfileDto> userProfileDtoEntityMapper;
 
     @Override
     public UserProfileDto createUser(CreateUserRequestDto req, MultipartFile avatar) {
@@ -92,7 +92,7 @@ public class UserAccountServiceImpl implements UserAccountService {
         profileRepository.save(profile);
 
         // --- 4. Return DTO ---
-        return userProfileDtoMapper.mapTo(profile);
+        return userProfileDtoEntityMapper.mapTo(profile);
     }
 
     private String generateDefaultPassword(CreateUserRequestDto req) {
