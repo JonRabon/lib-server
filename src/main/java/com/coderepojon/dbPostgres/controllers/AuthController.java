@@ -5,6 +5,7 @@ import com.coderepojon.dbPostgres.domain.dto.RefreshRequestDTO;
 import com.coderepojon.dbPostgres.domain.dto.TokenMetadata;
 import com.coderepojon.dbPostgres.domain.entities.*;
 import com.coderepojon.dbPostgres.repositories.TokenRepository;
+import com.coderepojon.dbPostgres.repositories.UserProfileRepository;
 import com.coderepojon.dbPostgres.repositories.UserRepository;
 import com.coderepojon.dbPostgres.security.JwtUtil;
 import com.coderepojon.dbPostgres.services.TokenService;
@@ -32,17 +33,20 @@ public class AuthController {
     private final TokenService tokenService;
     private final TokenRepository tokenRepo;
     private final PasswordEncoder passwordEncoder;
+    private final UserProfileRepository userProfileRepo;
 
     public AuthController(UserRepository userRepo,
                           JwtUtil jwtUtil,
                           TokenService tokenService,
                           TokenRepository tokenRepo,
-                          PasswordEncoder passwordEncoder) {
+                          PasswordEncoder passwordEncoder,
+                          UserProfileRepository userProfileRepo) {
         this.userRepo = userRepo;
         this.jwtUtil = jwtUtil;
         this.tokenService = tokenService;
         this.tokenRepo = tokenRepo;
         this.passwordEncoder = passwordEncoder;
+        this.userProfileRepo = userProfileRepo;
     }
 
     @PostMapping("/login")
@@ -70,8 +74,11 @@ public class AuthController {
                 .map(RoleEntity::getName)
                 .collect(Collectors.toList());
 
+        UserProfileEntity profileEntity = userProfileRepo.findByUser_Id(userEntity.getId())
+                .orElseThrow(() -> new RuntimeException("User Profile not found"));
+
         // Generate JWT
-        String accessToken = jwtUtil.generateAccessToken(username, roleNames);
+        String accessToken = jwtUtil.generateAccessToken(userEntity, profileEntity.getId(), roleNames);
         Date accessExp  = jwtUtil.getClaims(accessToken).getExpiration();// use getClaim directly
         String refreshToken = jwtUtil.generateRefreshToken(username);
         Date refreshExp  = jwtUtil.getClaims(refreshToken).getExpiration();// use getClaim directly
@@ -245,7 +252,10 @@ public class AuthController {
                     .map(RoleEntity::getName)
                     .collect(Collectors.toList());
 
-            String newAccessToken = jwtUtil.generateAccessToken(refreshUsername, roles);
+            UserProfileEntity profileEntity = userProfileRepo.findByUser_Id(userEntity.getId())
+                    .orElseThrow(() -> new RuntimeException("User Profile not found"));
+
+            String newAccessToken = jwtUtil.generateAccessToken(userEntity, profileEntity.getId(), roles);
             Date newAccessExpiry = jwtUtil.getClaims(newAccessToken).getExpiration();
 
             String newRefreshToken = jwtUtil.generateRefreshToken(refreshUsername);

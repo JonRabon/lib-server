@@ -1,5 +1,6 @@
 package com.coderepojon.dbPostgres.security;
 
+import com.coderepojon.dbPostgres.domain.entities.UserEntity;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
@@ -31,14 +32,15 @@ public class JwtUtil {
     /**
      * Generate JWT token with roles
      */
-    public String generateAccessToken(String username, Collection<String> roles) {
+    public String generateAccessToken(UserEntity user, Long profileId, Collection<String> roles) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("roles", roles);
         claims.put("type", "access");
+        claims.put("userId", profileId);
 
         return Jwts.builder()
                 .setClaims(claims)
-                .setSubject(username)
+                .setSubject(user.getUsername())
                 .setIssuedAt(new Date())
                 .setExpiration(new Date(System.currentTimeMillis() + accessExpirationTimeMs))
                 .signWith(getSigningKey(), SignatureAlgorithm.HS512)
