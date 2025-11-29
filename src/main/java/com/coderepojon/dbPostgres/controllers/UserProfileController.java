@@ -6,10 +6,12 @@ import com.coderepojon.dbPostgres.mappers.EntityMapper;
 import com.coderepojon.dbPostgres.services.UserProfileService;
 import com.coderepojon.dbPostgres.services.impl.UserAccountServiceImpl;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import jakarta.validation.Valid;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -44,7 +46,9 @@ public class UserProfileController {
 
     // Update existing user profile fully (PUT)
     @PutMapping("/{id}")
-    public ResponseEntity<UserProfileDto> update(@PathVariable Long id, @RequestBody @Valid UserProfileDto dto) {
+    public ResponseEntity<UserProfileDto> update(
+            @PathVariable Long id,
+            @RequestBody @Valid UserProfileDto dto) {
         UserProfileEntity entity = userProfileDtoEntityMapper.mapFrom(dto);
         UserProfileEntity updated = service.update(id, entity);
         return ResponseEntity.ok(userProfileDtoEntityMapper.mapTo(updated));
@@ -64,4 +68,31 @@ public class UserProfileController {
         service.delete(id);
         return ResponseEntity.noContent().build();
     }
+
+    // ---------- AVATAR ONLY (FILE UPLOAD) ----------
+    // Update existing user profile fully (PUT)
+    @PutMapping(value = "/{id}/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<UserProfileDto> updateAvatar(
+            @PathVariable Long id,
+            @RequestPart("avatar") MultipartFile avatar
+    ) {
+        UserProfileDto updated = service.updateAvatar(id, avatar);
+        return ResponseEntity.ok(updated);
+    }
+
+    @PatchMapping(value = "/{id}/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<UserProfileDto> patchAvatar(
+            @PathVariable Long id,
+            @RequestPart("avatar") MultipartFile avatar
+    ) {
+        UserProfileDto updated = service.updateAvatar(id, avatar);
+        return ResponseEntity.ok(updated);
+    }
+
+    @DeleteMapping("/{id}/avatar")
+    public ResponseEntity<Void> deleteAvatar(@PathVariable Long id) {
+        service.deleteAvatar(id);
+        return ResponseEntity.noContent().build();
+    }
+
 }

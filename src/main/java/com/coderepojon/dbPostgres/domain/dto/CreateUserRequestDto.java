@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -44,4 +45,7 @@ public class CreateUserRequestDto {
 
     private String avatarUrl;
     private String bio;
+
+    private Instant createdAt;
+    private Instant updatedAt;
 }
