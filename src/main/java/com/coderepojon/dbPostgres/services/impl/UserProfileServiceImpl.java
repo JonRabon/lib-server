@@ -10,13 +10,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -153,7 +153,10 @@ public class UserProfileServiceImpl implements UserProfileService {
 
     @Override
     public void delete(Long id) {
-        userProfileRepository.deleteById(id);
+        UserProfileEntity profile = userProfileRepository.findById(id)
+                        .orElseThrow(() -> new NoSuchElementException("Profile not found"));
+
+        userProfileRepository.deleteById(id); // cascades delete user
     }
 
     private void deleteAvatarFileIfExists(String avatarUrl) {

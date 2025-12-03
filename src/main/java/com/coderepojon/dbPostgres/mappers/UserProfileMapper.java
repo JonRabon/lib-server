@@ -10,10 +10,14 @@ import org.mapstruct.MappingTarget;
 @Mapper(componentModel = "spring")
 public interface UserProfileMapper extends EntityMapper<UserProfileEntity, UserProfileDto> {
 
-    // IGNORE fullName because we compute it manually
+    // IGNORE fullName - It's compute it manually
     @Override
     @Mapping(target = "fullName", ignore = true)
     @Mapping(target = "userId", expression = "java(entity.getUser() != null ? entity.getUser().getId() : null)")
+    @Mapping(target = "username", expression = "java(entity.getUser() != null ? entity.getUser().getUsername() : null)")
+    @Mapping(target = "status", expression = "java(entity.getUser() != null ? entity.getUser().getStatus() : null)")
+    @Mapping(target = "userUpdatedAt", expression = "java(entity.getUser() != null ? entity.getUser().getUpdatedAt() : null)")
+    @Mapping(target = "session", expression = "java(entity.getUser() != null && entity.getUser().getSession() != null && !entity.getUser().getSession().isEmpty() ? \"Online\" : \"Offline\")")
     UserProfileDto mapTo(UserProfileEntity entity);
 
     @Override

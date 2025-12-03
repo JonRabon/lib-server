@@ -23,6 +23,11 @@ public class UserProfileDto {
     @Email
     private String email;
 
+    private String username;
+    private String status;
+    private Instant userUpdatedAt;
+    private String session;
+
     @NotBlank
     private String firstName;
 
