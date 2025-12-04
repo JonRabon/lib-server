@@ -34,6 +34,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
 
+        // bypass for login - login never runs through JWT validation
+        if (request.getServletPath().equals("/api/auth/login")) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         final String authHeader = request.getHeader("Authorization");
         if(authHeader == null || !authHeader.startsWith("Bearer ")) {
             filterChain.doFilter(request, response);
